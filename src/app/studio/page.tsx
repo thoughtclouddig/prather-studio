@@ -84,7 +84,7 @@ export default async function Dashboard() {
         <div className="mono">{show[0]?.cadenceNote}</div>
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+      <div className="grid gap-5 min-w-0 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
         {/* ---------------------------------------------------- NEXT SHOW */}
         <Panel
           eyebrow="Next show"
@@ -182,7 +182,7 @@ export default async function Dashboard() {
                     href={item.href}
                     className="flex items-start gap-3 px-4 py-3 hover:bg-[var(--color-ink-150)] transition-colors"
                   >
-                    <span className="pt-0.5 w-[92px] flex-none">
+                    <span className="pt-0.5 w-[80px] flex-none">
                       <StateBadge tone={item.tone} label={item.kind} />
                     </span>
                     <span className="min-w-0 flex-1">
@@ -281,13 +281,17 @@ function ReadinessRow({
 }) {
   return (
     <tr>
-      <td className="w-[120px]">
+      <td className="w-[110px]">
         <span className="eyebrow">{label}</span>
       </td>
-      <td className="w-[150px]">
+      <td className="w-[140px]">
         <StateBadge tone={tone} label={value} />
       </td>
-      <td className="text-[12px] text-[var(--color-type-lo)]">{note}</td>
+      {/* Supplementary — dropped on narrow screens rather than forcing the
+          page to scroll sideways. */}
+      <td className="hidden sm:table-cell text-[12px] text-[var(--color-type-lo)]">
+        {note}
+      </td>
     </tr>
   );
 }

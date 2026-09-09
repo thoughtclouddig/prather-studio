@@ -73,6 +73,10 @@ body {
 .panel {
   background: var(--color-ink-100);
   border: 1px solid var(--color-ink-200);
+  /* A panel never widens its column. Wide tables scroll inside their own
+     overflow-x container instead of making the page scroll sideways. */
+  max-width: 100%;
+  min-width: 0;
 }
 
 .panel-head {

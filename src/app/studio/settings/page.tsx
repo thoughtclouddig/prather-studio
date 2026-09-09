@@ -84,6 +84,7 @@ export default async function SettingsPage() {
         {sponsorRows.length === 0 ? (
           <Empty>No sponsors configured.</Empty>
         ) : (
+          <div className="overflow-x-auto">
           <table className="grid-table">
             <thead>
               <tr>
@@ -110,6 +111,7 @@ export default async function SettingsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </Panel>
 
@@ -138,6 +140,7 @@ export default async function SettingsPage() {
 
       {canManageUsers && (
         <Panel eyebrow="Team" title="Users &amp; roles">
+          <div className="overflow-x-auto">
           <table className="grid-table">
             <thead>
               <tr>
@@ -158,6 +161,7 @@ export default async function SettingsPage() {
               ))}
             </tbody>
           </table>
+          </div>
         </Panel>
       )}
     </div>
