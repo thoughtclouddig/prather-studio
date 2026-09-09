@@ -1,0 +1,240 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   THE PRATHER POINT — STUDIO
+   A production control desk, not a dashboard product.
+
+   Rules this sheet enforces:
+     · hairlines, not shadows          · square corners, not pills
+     · flat surfaces, not gradients    · type weight and tracking do the work
+     · status is a swatch plus a word, never colour alone
+   ========================================================================== */
+
+@theme {
+  --color-ink-000: #08090a;   /* page */
+  --color-ink-050: #0e0f12;   /* rail, chrome */
+  --color-ink-100: #131519;   /* panel */
+  --color-ink-150: #191c21;   /* panel, raised */
+  --color-ink-200: #23262d;   /* hairline */
+  --color-ink-300: #333740;   /* hairline, emphasis */
+
+  --color-type-hi: #edeef0;
+  --color-type-mid: #a4a9b2;
+  --color-type-lo: #6b7079;
+
+  --color-signal-red: #c8102e;      /* Prather red — reserved for brand + alarm */
+  --color-signal-amber: #c98a12;
+  --color-signal-green: #2e9e63;
+  --color-signal-blue: #3b7ea1;
+  --color-signal-violet: #7a6bb0;
+
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-ink-000);
+  color: var(--color-type-hi);
+  font-family: var(--font-sans);
+  font-feature-settings: "tnum" 1, "cv01" 1;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- type -------------------------------------------------------------- */
+
+.eyebrow {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-type-lo);
+}
+
+.display {
+  font-weight: 800;
+  letter-spacing: -0.022em;
+  line-height: 1.08;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.01em;
+  color: var(--color-type-mid);
+}
+
+/* --- surfaces ---------------------------------------------------------- */
+
+.panel {
+  background: var(--color-ink-100);
+  border: 1px solid var(--color-ink-200);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--color-ink-200);
+  background: var(--color-ink-050);
+}
+
+.rule {
+  border-top: 1px solid var(--color-ink-200);
+}
+
+/* --- status ------------------------------------------------------------
+   Every state renders as SWATCH + WORD. A deliberate SKIP must never be
+   mistakable for a FAILURE, so muted and problem are different shapes of
+   information, not just different hues.                                    */
+
+.state {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.state::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  flex: none;
+  background: currentColor;
+}
+
+.state-ready    { color: var(--color-signal-blue); }
+.state-waiting  { color: var(--color-signal-amber); }
+.state-progress { color: var(--color-signal-violet); }
+.state-done     { color: var(--color-signal-green); }
+.state-problem  { color: var(--color-signal-red); }
+.state-muted    { color: var(--color-type-lo); }
+
+/* A skipped item is a decision, not an outcome to chase: hollow swatch. */
+.state-muted::before {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px currentColor;
+}
+
+/* In-progress work gets motion so "waiting on the machine" reads at a glance. */
+.state-progress::before {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.35; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .state-progress::before { animation: none; }
+}
+
+/* --- controls ---------------------------------------------------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-ink-300);
+  background: var(--color-ink-150);
+  color: var(--color-type-hi);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background 120ms, border-color 120ms, color 120ms;
+}
+.btn:hover:not(:disabled) { background: var(--color-ink-200); border-color: #454a55; }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.btn-primary {
+  background: var(--color-signal-red);
+  border-color: var(--color-signal-red);
+  color: #fff;
+}
+.btn-primary:hover:not(:disabled) { background: #e0142f; border-color: #e0142f; }
+
+.btn-approve { border-color: #2a6a4a; color: #6fd39c; }
+.btn-approve:hover:not(:disabled) { background: #14261d; border-color: #398a61; }
+
+.btn-reject { border-color: #6d2530; color: #e8798a; }
+.btn-reject:hover:not(:disabled) { background: #261417; border-color: #8d2f3d; }
+
+.btn-ghost { background: transparent; border-color: var(--color-ink-200); color: var(--color-type-mid); }
+.btn-ghost:hover:not(:disabled) { color: var(--color-type-hi); border-color: var(--color-ink-300); }
+
+.btn-xs { padding: 3px 8px; font-size: 10px; }
+
+.field {
+  width: 100%;
+  background: var(--color-ink-000);
+  border: 1px solid var(--color-ink-200);
+  color: var(--color-type-hi);
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.field:focus {
+  outline: none;
+  border-color: var(--color-signal-blue);
+}
+textarea.field { line-height: 1.55; resize: vertical; }
+
+/* --- tables ------------------------------------------------------------ */
+
+.grid-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.grid-table thead th {
+  text-align: left;
+  padding: 8px 14px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-type-lo);
+  background: var(--color-ink-050);
+  border-bottom: 1px solid var(--color-ink-200);
+  white-space: nowrap;
+}
+.grid-table tbody td { padding: 10px 14px; border-bottom: 1px solid var(--color-ink-200); vertical-align: middle; }
+.grid-table tbody tr:last-child td { border-bottom: none; }
+.grid-table tbody tr:hover { background: var(--color-ink-150); }
+
+/* --- misc -------------------------------------------------------------- */
+
+.tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border: 1px solid var(--color-ink-300);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-type-mid);
+}
+
+.tag-sim {
+  border-color: #6d5a1f;
+  color: var(--color-signal-amber);
+  background: #1d1809;
+}
+
+a { color: inherit; }
+.link { color: var(--color-signal-blue); text-decoration: none; }
+.link:hover { text-decoration: underline; }
+
+::selection { background: var(--color-signal-red); color: #fff; }
+
+/* Scrollbars that match the desk rather than the OS. */
+* { scrollbar-width: thin; scrollbar-color: var(--color-ink-300) transparent; }

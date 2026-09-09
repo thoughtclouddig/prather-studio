@@ -1,0 +1,28 @@
+# The Prather Point Studio
+#
+# ONE Reserved VM deployment runs both the web app and the job worker.
+# See DEPLOYMENT.md for why, and for how to split them later.
+#
+# NOTE: the deployment TYPE is chosen in Replit's Deployments pane, which
+# writes `deploymentTarget` itself. Reserved VM is required — Autoscale can
+# recycle an instance between requests, which would stall the worker.
+
+entrypoint = "src/app/page.tsx"
+modules = ["nodejs-24", "postgresql-16"]
+
+run = "npm run dev"
+
+[nix]
+channel = "stable-24_11"
+
+[deployment]
+build = ["npm", "run", "build"]
+run = ["npm", "run", "start:production"]
+deploymentTarget = "vm"
+
+[[ports]]
+localPort = 3000
+externalPort = 80
+
+[env]
+NODE_ENV = "production"
