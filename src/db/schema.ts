@@ -101,6 +101,37 @@ export const jobState = pgEnum("job_state", [
   "DEAD",
 ]);
 
+/** Which external service a stored credential belongs to. */
+export const integrationProvider = pgEnum("integration_provider", [
+  "YOUTUBE",
+  "RUMBLE",
+  "BUZZSPROUT",
+  "MAILCHIMP",
+  "OPUSCLIP",
+  "LOCALS",
+  "WORDPRESS",
+]);
+
+export const credentialKind = pgEnum("credential_kind", ["OAUTH", "API_KEY", "URL_SECRET"]);
+
+export const integrationHealth = pgEnum("integration_health", [
+  "DISCONNECTED",
+  "CONNECTED",
+  "ATTENTION",
+]);
+
+/**
+ * Where a transcript came from. The distinction is load-bearing: YouTube ASR is
+ * free but arrives late and is unpunctuated; a paid transcription of our own
+ * master is better but costs money. Downstream code reads segments, not source.
+ */
+export const transcriptSource = pgEnum("transcript_source", [
+  "YOUTUBE_ASR",
+  "YOUTUBE_MANUAL",
+  "WHISPER",
+  "UPLOAD",
+]);
+
 /* ------------------------------------------------------------------ users */
 
 export const users = pgTable(
@@ -237,6 +268,14 @@ export const episodePublications = pgTable(
     publishedAt: timestamp("published_at", { withTimezone: true }),
     errorMessage: text("error_message"),
     lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    /**
+     * What the platform's metadata looked like the last time we read it. Two
+     * jobs: detect that someone edited the video outside the Studio since our
+     * last sync, and give the diff view a "before" that is real rather than
+     * assumed. Not a revision history — exactly one snapshot, overwritten.
+     */
+    remoteSnapshot: jsonb("remote_snapshot"),
+    remoteSnapshotAt: timestamp("remote_snapshot_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -348,6 +387,91 @@ export const jobs = pgTable(
   ],
 );
 
+/* ------------------------------------------------- integration credentials */
+
+/**
+ * One row per connected provider. The payload is AES-256-GCM ciphertext and is
+ * NEVER selected into anything that reaches a client component — see
+ * `src/lib/integrations/credentials.ts`, which is the only module allowed to
+ * decrypt it.
+ */
+export const integrationCredentials = pgTable(
+  "integration_credentials",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: integrationProvider("provider").notNull(),
+    kind: credentialKind("kind").notNull(),
+    /** Opaque ciphertext. Format: v1.<iv>.<tag>.<ciphertext>, all base64url. */
+    encryptedPayload: text("encrypted_payload").notNull(),
+    /** Granted OAuth scopes, for display and for detecting a downgrade. */
+    scopes: text("scopes").array(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Safe-to-display identity of the connected account. Never a secret. */
+    accountLabel: text("account_label"),
+    accountExternalId: text("account_external_id"),
+    health: integrationHealth("health").notNull().default("DISCONNECTED"),
+    lastSuccessAt: timestamp("last_success_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    /** Latest poll snapshot for the Integrations page. Not analytics history. */
+    lastObservation: jsonb("last_observation"),
+    lastObservedAt: timestamp("last_observed_at", { withTimezone: true }),
+    connectedBy: uuid("connected_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("integration_credentials_provider_unique").on(t.provider)],
+);
+
+/* ------------------------------------------------------------- transcripts */
+
+export const episodeTranscripts = pgTable(
+  "episode_transcripts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    episodeId: uuid("episode_id")
+      .notNull()
+      .references(() => episodes.id, { onDelete: "cascade" }),
+    source: transcriptSource("source").notNull(),
+    /** e.g. "youtube.captions.download" — the exact mechanism used. */
+    provider: text("provider").notNull(),
+    language: text("language").notNull().default("en"),
+    /** The original payload, unparsed, exactly as the provider returned it. */
+    rawText: text("raw_text").notNull(),
+    /** The provider's own format, so a re-parse is always possible. */
+    rawFormat: text("raw_format").notNull().default("vtt"),
+    /** Plain readable text, segments joined. What the content engine reads. */
+    plainText: text("plain_text").notNull(),
+    sourceExternalId: text("source_external_id"),
+    durationSeconds: integer("duration_seconds"),
+    segmentCount: integer("segment_count").notNull().default(0),
+    generatedAt: timestamp("generated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("episode_transcripts_episode_idx").on(t.episodeId)],
+);
+
+export const transcriptSegments = pgTable(
+  "transcript_segments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    transcriptId: uuid("transcript_id")
+      .notNull()
+      .references(() => episodeTranscripts.id, { onDelete: "cascade" }),
+    ordinal: integer("ordinal").notNull(),
+    /** Seconds from the start of the recording. Chapters and clips index here. */
+    startTime: integer("start_time").notNull(),
+    endTime: integer("end_time").notNull(),
+    speaker: text("speaker"),
+    text: text("text").notNull(),
+  },
+  (t) => [
+    index("transcript_segments_transcript_idx").on(t.transcriptId, t.ordinal),
+    uniqueIndex("transcript_segments_ordinal_unique").on(t.transcriptId, t.ordinal),
+  ],
+);
+
 /* -------------------------------------------------------------- relations */
 
 export const showsRelations = relations(shows, ({ many }) => ({
@@ -387,6 +511,24 @@ export const episodeContentDraftsRelations = relations(
   }),
 );
 
+export const episodeTranscriptsRelations = relations(
+  episodeTranscripts,
+  ({ one, many }) => ({
+    episode: one(episodes, {
+      fields: [episodeTranscripts.episodeId],
+      references: [episodes.id],
+    }),
+    segments: many(transcriptSegments),
+  }),
+);
+
+export const transcriptSegmentsRelations = relations(transcriptSegments, ({ one }) => ({
+  transcript: one(episodeTranscripts, {
+    fields: [transcriptSegments.transcriptId],
+    references: [episodeTranscripts.id],
+  }),
+}));
+
 export const jobsRelations = relations(jobs, ({ one }) => ({
   episode: one(episodes, { fields: [jobs.episodeId], references: [episodes.id] }),
 }));
@@ -413,6 +555,9 @@ export type EpisodePublication = typeof episodePublications.$inferSelect;
 export type EpisodeContentDraft = typeof episodeContentDrafts.$inferSelect;
 export type ActivityEvent = typeof activityEvents.$inferSelect;
 export type Job = typeof jobs.$inferSelect;
+export type IntegrationCredential = typeof integrationCredentials.$inferSelect;
+export type EpisodeTranscript = typeof episodeTranscripts.$inferSelect;
+export type TranscriptSegment = typeof transcriptSegments.$inferSelect;
 
 export type UserRole = (typeof userRole.enumValues)[number];
 export type EpisodePhase = (typeof episodePhase.enumValues)[number];
@@ -422,3 +567,7 @@ export type PublicationState = (typeof publicationState.enumValues)[number];
 export type DraftState = (typeof draftState.enumValues)[number];
 export type JobState = (typeof jobState.enumValues)[number];
 export type Readiness = (typeof readiness.enumValues)[number];
+export type IntegrationProvider = (typeof integrationProvider.enumValues)[number];
+export type CredentialKind = (typeof credentialKind.enumValues)[number];
+export type IntegrationHealth = (typeof integrationHealth.enumValues)[number];
+export type TranscriptSource = (typeof transcriptSource.enumValues)[number];

@@ -55,8 +55,9 @@ export default async function StudioLayout({
 
       <footer className="border-t border-[var(--color-ink-200)] px-4 py-2.5">
         <p className="mono text-[10px]">
-          PHASE 1 — internal foundation. No platform integrations are connected;
-          every publish action in this build is simulated.
+          PHASE 2 — YouTube and Rumble are real connections. Rumble is observed only.
+          Buzzsprout, Mailchimp, WordPress, OpusClip and Locals have no adapter yet;
+          their publish actions are simulated and labelled as such.
         </p>
       </footer>
     </div>

@@ -161,7 +161,16 @@ body {
   transition: background 120ms, border-color 120ms, color 120ms;
 }
 .btn:hover:not(:disabled) { background: var(--color-ink-200); border-color: #454a55; }
-.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* A disabled primary must not keep shouting — a red fill reads as "press me"
+   even at reduced opacity, which is exactly wrong for an unavailable step. */
+.btn-primary:disabled {
+  background: var(--color-ink-150);
+  border-color: var(--color-ink-300);
+  color: var(--color-type-lo);
+  opacity: 1;
+}
 
 .btn-primary {
   background: var(--color-signal-red);

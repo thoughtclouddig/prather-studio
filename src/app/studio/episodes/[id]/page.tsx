@@ -16,7 +16,11 @@ import {
 import { relative, showDateTime, stamp } from "@/lib/format";
 import { Empty, Panel, StateBadge } from "@/components/ui";
 import { updateEpisodeAction } from "@/app/studio/actions";
+import { latestTranscript } from "@/lib/domain/transcripts";
+import { getIntegration } from "@/lib/integrations/credentials";
+import { formatTimestamp } from "@/lib/transcripts/parse";
 import { DraftCard, EpisodeForm, PublicationRow } from "./parts";
+import { FetchCaptionsButton, RunPackageButton, UnlinkYouTubeButton } from "./pipeline";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +43,12 @@ export default async function EpisodeWorkspace({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const [detail, user] = await Promise.all([getEpisodeDetail(id), requireUser()]);
+  const [detail, user, transcriptResult, youtubeIntegration] = await Promise.all([
+    getEpisodeDetail(id),
+    requireUser(),
+    latestTranscript(id),
+    getIntegration("YOUTUBE"),
+  ]);
   if (!detail) notFound();
 
   const { episode, show, publications, drafts, liveDrafts, packaging, activity, jobs } =
@@ -51,6 +60,12 @@ export default async function EpisodeWorkspace({
   const ordered = PLATFORM_ORDER.map((p) =>
     publications.find((pub) => pub.platform === p),
   ).filter(Boolean);
+
+  const youtubePub = publications.find((p) => p.platform === "YOUTUBE");
+  const linkedVideoId = youtubePub?.externalId ?? null;
+  const youtubeConnected = youtubeIntegration?.health === "CONNECTED";
+  const transcript = transcriptResult?.transcript ?? null;
+  const hasDrafts = liveDrafts.length > 0;
 
   return (
     <div className="space-y-5">
@@ -97,6 +112,176 @@ export default async function EpisodeWorkspace({
       {/* ------------------------------------------------------- EPISODE */}
       <Panel eyebrow="Episode" title="Identity &amp; schedule">
         <EpisodeForm episode={episode} canEdit={canEdit} action={updateEpisodeAction} />
+      </Panel>
+
+      {/* ------------------------------------------------------ PRODUCTION */}
+      <Panel
+        eyebrow="Production"
+        title="Real show to reviewable package"
+        actions={
+          <span className="mono">
+            {youtubeConnected ? "YouTube connected" : "YouTube not connected"}
+          </span>
+        }
+      >
+        <table className="grid-table">
+          <tbody>
+            {/* 1 — the canonical link to what already exists on YouTube */}
+            <tr>
+              <td className="w-[150px] align-top">
+                <span className="eyebrow">1 · YouTube video</span>
+              </td>
+              <td className="w-[160px] align-top">
+                <StateBadge
+                  tone={linkedVideoId ? "done" : youtubeConnected ? "ready" : "muted"}
+                  label={linkedVideoId ? "Linked" : youtubeConnected ? "Not linked" : "Unavailable"}
+                />
+              </td>
+              <td className="align-top">
+                {linkedVideoId ? (
+                  <a
+                    href={`https://www.youtube.com/watch?v=${linkedVideoId}`}
+                    target="_blank"
+                    rel="noreferrer noopener"
+                    className="link mono"
+                  >
+                    {linkedVideoId}
+                  </a>
+                ) : (
+                  <span className="text-[12px] text-[var(--color-type-lo)]">
+                    {youtubeConnected
+                      ? "Match this episode to the video that already exists. Nothing is uploaded."
+                      : "Connect YouTube in Integrations to list candidates."}
+                  </span>
+                )}
+              </td>
+              <td className="w-[210px] align-top text-right">
+                <div className="inline-flex gap-2">
+                  <Link href={`/studio/episodes/${episode.id}/match`} className="btn btn-xs">
+                    {linkedVideoId ? "Re-match" : "Find video"}
+                  </Link>
+                  {linkedVideoId && canEdit && <UnlinkYouTubeButton episodeId={episode.id} />}
+                </div>
+              </td>
+            </tr>
+
+            {/* 2 — the transcript, which everything downstream reads */}
+            <tr>
+              <td className="align-top">
+                <span className="eyebrow">2 · Transcript</span>
+              </td>
+              <td className="align-top">
+                <StateBadge
+                  tone={transcript ? "done" : linkedVideoId ? "ready" : "muted"}
+                  label={transcript ? "Ready" : linkedVideoId ? "Not fetched" : "Waiting on link"}
+                />
+              </td>
+              <td className="align-top">
+                {transcript ? (
+                  <span className="text-[12px]">
+                    {transcript.segmentCount} segments ·{" "}
+                    {formatTimestamp(transcript.durationSeconds ?? 0)} ·{" "}
+                    <span className="mono">
+                      {transcript.source} via {transcript.provider}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-[var(--color-type-lo)]">
+                    Retrieved from the video&rsquo;s own caption track. Auto-captions can take a
+                    few hours to appear after a stream ends.
+                  </span>
+                )}
+              </td>
+              <td className="align-top text-right">
+                {canEdit && (
+                  <FetchCaptionsButton
+                    episodeId={episode.id}
+                    disabled={!linkedVideoId || !youtubeConnected}
+                    hasTranscript={!!transcript}
+                  />
+                )}
+              </td>
+            </tr>
+
+            {/* 3 — Claude, writing only into PROPOSED drafts */}
+            <tr>
+              <td className="align-top">
+                <span className="eyebrow">3 · Content engine</span>
+              </td>
+              <td className="align-top">
+                <StateBadge
+                  tone={
+                    packaging === "APPROVED"
+                      ? "done"
+                      : packaging === "REVIEW"
+                        ? "waiting"
+                        : transcript
+                          ? "ready"
+                          : "muted"
+                  }
+                  label={PACKAGING_LABEL[packaging]}
+                />
+              </td>
+              <td className="align-top">
+                <span className="text-[12px] text-[var(--color-type-lo)]">
+                  {hasDrafts
+                    ? "Everything it wrote is a PROPOSED draft until a person approves it."
+                    : "Reads the transcript and proposes headlines, summaries, descriptions, chapters and 3–5 clip moments."}
+                </span>
+              </td>
+              <td className="align-top text-right">
+                {canEdit && (
+                  <RunPackageButton
+                    episodeId={episode.id}
+                    disabled={!transcript}
+                    hasDrafts={hasDrafts}
+                  />
+                )}
+              </td>
+            </tr>
+
+            {/* 4 — the write, gated on approval */}
+            <tr>
+              <td className="align-top">
+                <span className="eyebrow">4 · YouTube metadata</span>
+              </td>
+              <td className="align-top">
+                <StateBadge
+                  tone={
+                    !linkedVideoId
+                      ? "muted"
+                      : packaging === "APPROVED"
+                        ? "ready"
+                        : "waiting"
+                  }
+                  label={
+                    !linkedVideoId
+                      ? "Waiting on link"
+                      : packaging === "APPROVED"
+                        ? "Ready to send"
+                        : "Awaiting approval"
+                  }
+                />
+              </td>
+              <td className="align-top">
+                <span className="text-[12px] text-[var(--color-type-lo)]">
+                  Updates the existing video&rsquo;s title and description. Only APPROVED content
+                  is ever sent.
+                </span>
+              </td>
+              <td className="align-top text-right">
+                {linkedVideoId && (
+                  <Link
+                    href={`/studio/episodes/${episode.id}/youtube`}
+                    className={`btn btn-xs ${packaging === "APPROVED" ? "btn-primary" : ""}`}
+                  >
+                    Review diff
+                  </Link>
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </Panel>
 
       {/* --------------------------------------------- EDITORIAL/PACKAGING */}

@@ -61,7 +61,12 @@ export default async function EpisodesPage({
           <div className="eyebrow">Archive</div>
           <h1 className="display text-[26px]">Episodes</h1>
         </div>
-        <div className="mono">{all.length} total</div>
+        <div className="flex items-center gap-3">
+          <span className="mono">{all.length} total</span>
+          <Link href="/studio/episodes/new" className="btn btn-primary btn-xs">
+            New episode
+          </Link>
+        </div>
       </div>
 
       <nav className="flex flex-wrap items-stretch border border-[var(--color-ink-200)] bg-[var(--color-ink-050)]">

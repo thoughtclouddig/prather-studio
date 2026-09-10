@@ -67,4 +67,4 @@ const port = process.env.PORT ?? "3000";
 log("starting", { port });
 
 start("web", "npx", ["next", "start", "-p", port, "-H", "0.0.0.0"]);
-start("worker", "npx", ["tsx", "worker/index.ts"]);
+start("worker", "npx", ["tsx", "--tsconfig", "worker/tsconfig.json", "worker/index.ts"]);
