@@ -216,7 +216,7 @@ export default async function Dashboard() {
             <thead>
               <tr>
                 <th>Episode</th>
-                <th>Aired</th>
+                <th>Air date</th>
                 <th>Phase</th>
                 <th>Packaging</th>
                 <th>Platforms</th>
@@ -243,8 +243,16 @@ export default async function Dashboard() {
                       </span>
                     )}
                   </td>
+                  {/* An episode that has not aired must not read as though it
+                      has — "4h ago" under an Aired column is a lie by layout. */}
                   <td className="mono whitespace-nowrap">
-                    {e.airedAt ? shortDate(e.airedAt) : relative(e.scheduledAt)}
+                    {e.airedAt ? (
+                      shortDate(e.airedAt)
+                    ) : (
+                      <span className="text-[var(--color-type-lo)]">
+                        {shortDate(e.scheduledAt)} · scheduled
+                      </span>
+                    )}
                   </td>
                   <td>
                     <StateBadge tone={PHASE_TONE[e.phase]} label={PHASE_LABEL[e.phase]} />
