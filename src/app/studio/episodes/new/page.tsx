@@ -3,6 +3,7 @@ import { db } from "@/db/client";
 import { shows } from "@/db/schema";
 import { requirePermission } from "@/lib/auth/require";
 import { CREATED_PLATFORMS, DEFAULT_INTENTS } from "@/lib/domain/create-episode";
+import { cadenceFrom, getNextExpectedShowSlot } from "@/lib/domain/schedule";
 import { PLATFORM_LABEL } from "@/lib/domain/vocabulary";
 import { toShowInputValue } from "@/lib/format";
 import { Panel } from "@/components/ui";
@@ -10,27 +11,25 @@ import { NewEpisodeForm } from "./form";
 
 export const dynamic = "force-dynamic";
 
-/** Next Tuesday or Thursday at the show's usual start time. */
-function nextShowSlot(startTime: string): Date {
-  const [hour, minute] = startTime.split(":").map(Number);
-  const now = new Date();
-  for (let offset = 0; offset < 8; offset++) {
-    const candidate = new Date(now);
-    candidate.setDate(now.getDate() + offset);
-    const day = candidate.getDay();
-    if (day !== 2 && day !== 4) continue;
-    // The input is in ET; nudge by the show's hour in that zone.
-    const et = new Date(
-      `${candidate.toISOString().slice(0, 10)}T${String(hour ?? 14).padStart(2, "0")}:${String(minute ?? 0).padStart(2, "0")}:00-04:00`,
-    );
-    if (et.getTime() > now.getTime()) return et;
-  }
-  return now;
-}
-
-export default async function NewEpisodePage() {
-  await requirePermission("episode.create");
+export default async function NewEpisodePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ at?: string }>;
+}) {
+  const [{ at }] = await Promise.all([searchParams, requirePermission("episode.create")]);
   const [show] = await db.select().from(shows).limit(1);
+
+  // Prefer the slot the Dashboard offered; otherwise derive the next expected
+  // one from the same domain function the Dashboard uses, so the two can never
+  // disagree. That calculation used to be duplicated here with a hardcoded
+  // -04:00 offset, which silently broke outside daylight time.
+  const slot = show ? getNextExpectedShowSlot(new Date(), cadenceFrom(show)) : null;
+  const defaultScheduledAt =
+    at && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(at)
+      ? at
+      : slot
+        ? toShowInputValue(slot.startsAt)
+        : "";
 
   return (
     <div className="space-y-5 max-w-[820px]">
@@ -45,7 +44,7 @@ export default async function NewEpisodePage() {
       </div>
 
       <NewEpisodeForm
-        defaultScheduledAt={toShowInputValue(nextShowSlot(show?.defaultStartTime ?? "14:00"))}
+        defaultScheduledAt={defaultScheduledAt}
         showName={show?.name ?? "The Prather Point"}
         cadence={show?.cadenceNote ?? null}
         platformCount={CREATED_PLATFORMS.length}

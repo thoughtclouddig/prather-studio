@@ -14,17 +14,18 @@ import {
   READINESS_LABEL,
   READINESS_TONE,
 } from "@/lib/domain/vocabulary";
-import { countdown, relative, shortDate, showDateTime } from "@/lib/format";
+import {
+  cadenceFrom,
+  countdownTo,
+  getNextExpectedShowSlot,
+  selectCurrentShow,
+  selectNextShow,
+  selectPastUnresolved,
+} from "@/lib/domain/schedule";
+import { relative, shortDate, showDateTime, toShowInputValue } from "@/lib/format";
 import { Empty, Panel, StateBadge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-
-/** The next show is the soonest episode that has not aired. */
-function pickNextShow(rows: EpisodeRow[]): EpisodeRow | undefined {
-  return rows
-    .filter((r) => !r.airedAt && r.scheduledAt)
-    .sort((a, b) => a.scheduledAt!.getTime() - b.scheduledAt!.getTime())[0];
-}
 
 export default async function Dashboard() {
   const [episodes, show, deadJobs] = await Promise.all([
@@ -38,8 +39,24 @@ export default async function Dashboard() {
       .limit(5),
   ]);
 
-  const next = pickNextShow(episodes);
-  const recent = episodes.filter((e) => e.id !== next?.id).slice(0, 6);
+  const now = new Date();
+  const cadence = cadenceFrom(show[0] ?? { defaultStartTime: "14:00", timezone: "America/New_York" });
+
+  // Three separate questions, deliberately not collapsed into one card:
+  // what is on air, what is next, and what the calendar expects if no episode
+  // exists for it yet.
+  const currentShow = selectCurrentShow(episodes);
+  const next = selectNextShow(episodes, now);
+  const expectedSlot = next ? null : getNextExpectedShowSlot(now, cadence);
+  const unresolved = selectPastUnresolved(episodes, now);
+
+  // LIVE wins the card when something is actually on air; otherwise the next
+  // future episode. A past episode can occupy neither.
+  const featured = currentShow ?? next;
+  const countdownState = countdownTo(featured?.scheduledAt, now, {
+    isLive: !!currentShow,
+  });
+  const recent = episodes.filter((e) => e.id !== featured?.id).slice(0, 6);
 
   const attention = [
     ...episodes
@@ -64,6 +81,17 @@ export default async function Dashboard() {
           tone: "problem" as const,
         })),
     ),
+    // A scheduled time passing is not evidence the show happened. Until
+    // something observes it, the episode is an operator task rather than
+    // either upcoming or complete.
+    ...unresolved.map((e) => ({
+      kind: "Unresolved" as const,
+      episodeId: e.id,
+      title: e.approvedTitle ?? e.workingTitle,
+      detail: `Scheduled ${showDateTime(e.scheduledAt)} — no broadcast observed`,
+      href: `/studio/episodes/${e.id}`,
+      tone: "problem" as const,
+    })),
     ...deadJobs.map((j) => ({
       kind: "Dead job" as const,
       episodeId: j.episodeId,
@@ -85,33 +113,76 @@ export default async function Dashboard() {
       </div>
 
       <div className="grid gap-5 min-w-0 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        {/* ---------------------------------------------------- NEXT SHOW */}
+        {/* ------------------------------------- CURRENT / NEXT / EXPECTED */}
         <Panel
-          eyebrow="Next show"
-          title={next ? next.workingTitle : "Nothing scheduled"}
+          eyebrow={currentShow ? "Live now" : featured ? "Next show" : "Next expected show"}
+          title={
+            currentShow?.workingTitle ??
+            next?.workingTitle ??
+            (expectedSlot ? "No episode created yet" : "Nothing scheduled")
+          }
           actions={
-            next && (
-              <Link href={`/studio/episodes/${next.id}`} className="btn btn-ghost btn-xs">
+            featured && (
+              <Link
+                href={`/studio/episodes/${featured.id}`}
+                className="btn btn-ghost btn-xs"
+              >
                 Open
               </Link>
             )
           }
         >
-          {!next ? (
-            <Empty>No upcoming episode. Schedule one from Episodes.</Empty>
+          {!featured ? (
+            /* The cadence predicts the slot; a human creates the episode. The
+               Studio never invents a phantom episode from the calendar. */
+            expectedSlot ? (
+              <div className="px-4 py-5 flex items-end justify-between gap-4 flex-wrap">
+                <div>
+                  <div className="eyebrow mb-1">Expected air time</div>
+                  <div className="text-[17px] font-semibold">
+                    {showDateTime(expectedSlot.startsAt)}
+                  </div>
+                  <div className="mt-2">
+                    <StateBadge tone="waiting" label="Episode not created" />
+                  </div>
+                  <p className="text-[12px] text-[var(--color-type-lo)] mt-2 max-w-[42ch] leading-snug">
+                    From the show&rsquo;s cadence in Settings. No episode exists for this
+                    slot yet.
+                  </p>
+                </div>
+                <Link
+                  href={`/studio/episodes/new?at=${encodeURIComponent(
+                    toShowInputValue(expectedSlot.startsAt),
+                  )}`}
+                  className="btn btn-primary"
+                >
+                  Create episode
+                </Link>
+              </div>
+            ) : (
+              <Empty>No upcoming episode and no cadence configured.</Empty>
+            )
           ) : (
             <>
               <div className="px-4 py-3.5 border-b border-[var(--color-ink-200)] flex items-end justify-between gap-4 flex-wrap">
                 <div>
                   <div className="eyebrow mb-1">Air time</div>
                   <div className="text-[15px] font-semibold">
-                    {showDateTime(next.scheduledAt)}
+                    {showDateTime(featured.scheduledAt)}
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="eyebrow mb-1">Countdown</div>
-                  <div className="display text-[24px] text-[var(--color-signal-red)]">
-                    {countdown(next.scheduledAt)}
+                  <div className="eyebrow mb-1">
+                    {countdownState.kind === "live" ? "Status" : "Countdown"}
+                  </div>
+                  <div
+                    className={`display ${countdownState.kind === "overdue" ? "text-[17px]" : "text-[24px]"} ${
+                      countdownState.kind === "overdue"
+                        ? "text-[var(--color-signal-amber)]"
+                        : "text-[var(--color-signal-red)]"
+                    }`}
+                  >
+                    {countdownState.label}
                   </div>
                 </div>
               </div>
@@ -120,19 +191,19 @@ export default async function Dashboard() {
                 <tbody>
                   <ReadinessRow
                     label="Show"
-                    tone={READINESS_TONE[next.showPrepState]}
-                    value={READINESS_LABEL[next.showPrepState]}
+                    tone={READINESS_TONE[featured.showPrepState]}
+                    value={READINESS_LABEL[featured.showPrepState]}
                     note="StreamYard prep confirmed by an operator"
                   />
                   <ReadinessRow
                     label="Artwork"
-                    tone={READINESS_TONE[next.artworkState]}
-                    value={READINESS_LABEL[next.artworkState]}
+                    tone={READINESS_TONE[featured.artworkState]}
+                    value={READINESS_LABEL[featured.artworkState]}
                     note="Square show art, reused across platforms"
                   />
                   {(["RUMBLE", "YOUTUBE", "BUZZSPROUT", "MAILCHIMP"] as const).map(
                     (platform) => {
-                      const pub = next.publications.find((p) => p.platform === platform);
+                      const pub = featured.publications.find((p) => p.platform === platform);
                       return (
                         <ReadinessRow
                           key={platform}

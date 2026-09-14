@@ -175,6 +175,12 @@ export const shows = pgTable(
     defaultStartTime: text("default_start_time").notNull().default("14:00"),
     timezone: text("timezone").notNull().default("America/New_York"),
     cadenceNote: text("cadence_note"),
+    /**
+     * Weekdays the show airs, 0 = Sunday … 6 = Saturday. Structured because
+     * `cadenceNote` is prose for humans and cannot be computed against — the
+     * next-expected-slot calculation needs actual days.
+     */
+    cadenceDays: integer("cadence_days").array(),
     /** Appears under Jeff's name in email and show notes. */
     credentialLine: text("credential_line"),
     briefLabel: text("brief_label"),

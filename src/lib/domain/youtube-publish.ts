@@ -295,9 +295,16 @@ export async function applyYouTubeUpdate(
       after: { title: updated.title, description: updated.description },
     });
 
+    // Stamp when the broadcast actually happened, not when we updated it.
+    // Marking an episode RELEASED without an airedAt left it looking like it
+    // had never aired, which is how a past show kept qualifying as upcoming.
+    const broadcastAt = plan.video.live?.actualStartTime
+      ? new Date(plan.video.live.actualStartTime)
+      : new Date(plan.video.publishedAt);
+
     await db
       .update(episodes)
-      .set({ phase: "RELEASED", updatedAt: now })
+      .set({ phase: "RELEASED", airedAt: broadcastAt, updatedAt: now })
       .where(eq(episodes.id, episodeId));
 
     return { publication: saved!, video: updated };
