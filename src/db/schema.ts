@@ -132,6 +132,28 @@ export const transcriptSource = pgEnum("transcript_source", [
   "UPLOAD",
 ]);
 
+/**
+ * A single fact a provider told us about a broadcast. Deliberately NOT an
+ * episode state: an observation is evidence, and evidence is interpreted
+ * elsewhere. `OFFLINE` only ever means "a stream we were watching is no longer
+ * listed" — Rumble emits no completion event, so its end is inferred.
+ */
+export const broadcastSignal = pgEnum("broadcast_signal", [
+  "SCHEDULED",
+  "LIVE",
+  "OFFLINE",
+  "COMPLETED",
+]);
+
+/** Recurring, operator-authored description content. Never written by the AI. */
+export const standingBlockKind = pgEnum("standing_block_kind", [
+  "CTA",
+  "SPONSOR",
+  "AFFILIATE",
+  "CREDENTIAL",
+  "DISCLAIMER",
+]);
+
 /* ------------------------------------------------------------------ users */
 
 export const users = pgTable(
@@ -318,6 +340,23 @@ export const episodeContentDrafts = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
     /** Set when an edit replaced this draft, so history stays intact. */
     supersededById: uuid("superseded_by_id"),
+    /**
+     * The transcript this copy was generated from. Packaging is automatic now,
+     * so a draft can outlive the material it describes: if the transcript is
+     * replaced, anything generated from the old one is describing a recording
+     * that is no longer the episode's.
+     */
+    sourceTranscriptId: uuid("source_transcript_id").references(
+      () => episodeTranscripts.id,
+      { onDelete: "set null" },
+    ),
+    /**
+     * Set when the source material changed after this draft was written.
+     * Approval is NOT revoked — that would silently discard a human decision —
+     * but the operator is told the approval now rests on obsolete input.
+     */
+    staleAt: timestamp("stale_at", { withTimezone: true }),
+    staleReason: text("stale_reason"),
     approvedBy: uuid("approved_by").references(() => users.id, {
       onDelete: "set null",
     }),
@@ -478,6 +517,132 @@ export const transcriptSegments = pgTable(
   ],
 );
 
+/* ------------------------------------------------ broadcast observations */
+
+/**
+ * What a provider actually told us about a broadcast, and when.
+ *
+ * This table exists so the workflow survives a restart. The worker cannot rely
+ * on having witnessed a transition in memory: it may be down for the minute a
+ * stream ends. Persisting the evidence lets the next worker reach the same
+ * conclusion the previous one would have.
+ *
+ * Two deliberate limits:
+ *   · Only TRANSITIONS are written, never every poll. A minute-by-minute poll
+ *     that keeps reporting "still offline" adds no evidence and would bury the
+ *     rows that matter.
+ *   · Nothing here is an episode state. These are facts from providers; the
+ *     interpretation lives in `lib/domain/broadcast.ts`, and the canonical
+ *     episode's relationship to the clock stays with `classifyEpisode`.
+ */
+export const broadcastObservations = pgTable(
+  "broadcast_observations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Null until the observation is matched to a canonical episode. */
+    episodeId: uuid("episode_id").references(() => episodes.id, {
+      onDelete: "cascade",
+    }),
+    provider: integrationProvider("provider").notNull(),
+    signal: broadcastSignal("signal").notNull(),
+    /** The provider's id for the thing observed — a stream id, a video id. */
+    externalId: text("external_id"),
+    /** When the provider says it happened; falls back to when we saw it. */
+    observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
+    /** Human-readable reason this row exists. Shown in Activity, not a log. */
+    summary: text("summary").notNull(),
+    detail: jsonb("detail"),
+    /**
+     * Makes replay safe. A poll that re-reports a transition we already
+     * recorded collides here instead of writing a second row, which is what
+     * keeps "the worker restarted and re-observed everything" harmless.
+     */
+    dedupeKey: text("dedupe_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("broadcast_observations_dedupe_unique").on(t.dedupeKey),
+    index("broadcast_observations_episode_idx").on(t.episodeId, t.observedAt),
+    index("broadcast_observations_provider_idx").on(t.provider, t.observedAt),
+  ],
+);
+
+/* ---------------------------------------------------------- standing blocks */
+
+/**
+ * Recurring business content: CTAs, sponsor reads, affiliate links.
+ *
+ * Phase 2 replaced a whole YouTube description with AI-written copy and in
+ * doing so dropped a StreamYard affiliate link that had been in the original.
+ * The fix is not to ask the model to remember it — a model asked to reproduce a
+ * promo code every episode will eventually get one character wrong. Recurring
+ * content is operator-authored, stored verbatim, and composed deterministically
+ * around the editorial copy.
+ *
+ * See `docs/PHASE-3-INVESTIGATION.md` §3 for what is actually recurring in
+ * production today, which is much less than expected.
+ */
+export const standingBlocks = pgTable(
+  "standing_blocks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    showId: uuid("show_id")
+      .notNull()
+      .references(() => shows.id, { onDelete: "cascade" }),
+    kind: standingBlockKind("kind").notNull(),
+    /** Operator-facing name. Not published. */
+    label: text("label").notNull(),
+    /** Published verbatim. Promo codes and URLs live here untouched. */
+    body: text("body").notNull(),
+    /**
+     * Which platforms this block belongs on. Empty means every platform —
+     * a podcast CTA and a "subscribe on YouTube" CTA are not the same text.
+     */
+    platforms: publicationPlatform("platforms").array(),
+    enabled: boolean("enabled").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("standing_blocks_show_idx").on(t.showId, t.sortOrder)],
+);
+
+/* -------------------------------------------------------- worker heartbeats */
+
+/**
+ * One row per worker process that has claimed work against this database.
+ *
+ * Phase 2 found four worker processes competing for jobs, two of them stale
+ * from before `ANTHROPIC_API_KEY` existed — so they failed every packaging job
+ * they won. Once the worker is responsible for processing a real show
+ * automatically, a forgotten laptop worker pointed at production is a genuine
+ * hazard rather than an annoyance.
+ *
+ * The protection is deliberately small: a worker declares the environment it
+ * believes it is in, and the queue refuses claims from a worker whose
+ * environment does not match the database's. That is enough to stop the actual
+ * failure mode without building leases, fencing tokens or a consensus protocol.
+ */
+export const workerHeartbeats = pgTable(
+  "worker_heartbeats",
+  {
+    /** Stable per process: hostname + pid, or WORKER_ID when set. */
+    workerId: text("worker_id").primaryKey(),
+    /** What the worker thinks it is connected to: "production", "development". */
+    environment: text("environment").notNull(),
+    /** Commit or build id, so a stale binary is identifiable on sight. */
+    version: text("version"),
+    hostname: text("hostname"),
+    pid: integer("pid"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    lastBeatAt: timestamp("last_beat_at", { withTimezone: true }).notNull().defaultNow(),
+    jobsClaimed: integer("jobs_claimed").notNull().default(0),
+    /** Set when the worker was refused. Surfaced on the Jobs page. */
+    rejectedReason: text("rejected_reason"),
+  },
+  (t) => [index("worker_heartbeats_beat_idx").on(t.lastBeatAt)],
+);
+
 /* -------------------------------------------------------------- relations */
 
 export const showsRelations = relations(shows, ({ many }) => ({
@@ -577,3 +742,9 @@ export type IntegrationProvider = (typeof integrationProvider.enumValues)[number
 export type CredentialKind = (typeof credentialKind.enumValues)[number];
 export type IntegrationHealth = (typeof integrationHealth.enumValues)[number];
 export type TranscriptSource = (typeof transcriptSource.enumValues)[number];
+export type BroadcastObservation = typeof broadcastObservations.$inferSelect;
+export type StandingBlock = typeof standingBlocks.$inferSelect;
+export type WorkerHeartbeat = typeof workerHeartbeats.$inferSelect;
+
+export type BroadcastSignal = (typeof broadcastSignal.enumValues)[number];
+export type StandingBlockKind = (typeof standingBlockKind.enumValues)[number];
