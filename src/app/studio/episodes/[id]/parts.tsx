@@ -161,11 +161,21 @@ export function PublicationRow({
   episodeId,
   canEdit,
   note,
+  /**
+   * Whether this platform has a real adapter. A SIMULATE button beside a
+   * genuinely connected provider invites exactly the confusion Phase 3 §2 set
+   * out to remove: a simulated publish writes PUBLISHED without contacting
+   * anything, and next to a real YouTube row that is actively misleading.
+   */
+  isReal = false,
+  allowSimulation = true,
 }: {
   publication: EpisodePublication;
   episodeId: string;
   canEdit: boolean;
   note?: string;
+  isReal?: boolean;
+  allowSimulation?: boolean;
 }) {
   const [intentState, changeIntent] = useActionState(setIntentAction, undefined);
   const [simState, simulate] = useActionState(simulateQueueAction, undefined);
@@ -250,7 +260,12 @@ export function PublicationRow({
       </td>
 
       <td className="w-[170px] align-top text-right">
-        {canEdit && (
+        {isReal ? (
+          <span className="mono text-[11px]">real adapter</span>
+        ) : !allowSimulation ? (
+          <span className="mono text-[11px]">no adapter yet</span>
+        ) : (
+          canEdit && (
           <form action={simulate} className="inline-flex flex-col items-end gap-1">
             <input type="hidden" name="publicationId" value={publication.id} />
             <input type="hidden" name="episodeId" value={episodeId} />
@@ -267,6 +282,7 @@ export function PublicationRow({
             </Pending>
             <SimTag />
           </form>
+          )
         )}
       </td>
     </tr>

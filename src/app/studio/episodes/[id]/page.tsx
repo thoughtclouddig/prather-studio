@@ -10,17 +10,32 @@ import {
   PHASE_LABEL,
   PHASE_TONE,
   PLATFORM_ORDER,
+  PUBLICATION_STATE_LABEL,
+  PUBLICATION_STATE_TONE,
   READINESS_LABEL,
   READINESS_TONE,
 } from "@/lib/domain/vocabulary";
 import { relative, showDateTime, stamp } from "@/lib/format";
+import type { Platform } from "@/db/schema";
+import { diagnosticsEnabled } from "@/lib/diagnostics";
 import { Empty, Panel, StateBadge } from "@/components/ui";
+import { BuzzsproutAudioUpload } from "./buzzsprout-parts";
 import { updateEpisodeAction } from "@/app/studio/actions";
 import { latestTranscript } from "@/lib/domain/transcripts";
 import { getIntegration } from "@/lib/integrations/credentials";
 import { formatTimestamp } from "@/lib/transcripts/parse";
 import { DraftCard, EpisodeForm, PublicationRow } from "./parts";
 import { FetchCaptionsButton, RunPackageButton, UnlinkYouTubeButton } from "./pipeline";
+
+/**
+ * Platforms with a real adapter as of Phase 3.
+ *
+ * Kept beside the UI that renders it because the honest distinction between
+ * "we did this" and "we pretended to" is a presentation-level promise: a row
+ * offering SIMULATE next to a genuinely connected provider is how a simulated
+ * publish gets mistaken for a real one.
+ */
+const REAL_PLATFORMS = new Set<Platform>(["YOUTUBE", "RUMBLE", "BUZZSPROUT"]);
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +77,7 @@ export default async function EpisodeWorkspace({
   ).filter(Boolean);
 
   const youtubePub = publications.find((p) => p.platform === "YOUTUBE");
+  const buzzsproutPub = publications.find((p) => p.platform === "BUZZSPROUT");
   const linkedVideoId = youtubePub?.externalId ?? null;
   const youtubeConnected = youtubeIntegration?.health === "CONNECTED";
   const transcript = transcriptResult?.transcript ?? null;
@@ -314,7 +330,11 @@ export default async function EpisodeWorkspace({
       <Panel
         eyebrow="Distribution"
         title="One episode, many publications"
-        actions={<span className="mono">no platform is connected in this build</span>}
+        actions={
+          <span className="mono">
+            {REAL_PLATFORMS.size} real · {ordered.length - REAL_PLATFORMS.size} awaiting an adapter
+          </span>
+        }
       >
         <div className="overflow-x-auto">
           <table className="grid-table">
@@ -324,7 +344,7 @@ export default async function EpisodeWorkspace({
                 <th>Intent</th>
                 <th>State</th>
                 <th>External</th>
-                <th className="text-right">Dev action</th>
+                <th className="text-right">Adapter</th>
               </tr>
             </thead>
             <tbody>
@@ -335,6 +355,8 @@ export default async function EpisodeWorkspace({
                   episodeId={episode.id}
                   canEdit={canEdit}
                   note={PLATFORM_NOTE[pub!.platform]}
+                  isReal={REAL_PLATFORMS.has(pub!.platform)}
+                  allowSimulation={diagnosticsEnabled()}
                 />
               ))}
             </tbody>
@@ -375,6 +397,46 @@ export default async function EpisodeWorkspace({
         </Panel>
 
         {/* --------------------------------------------------- ACTIVITY */}
+        {/* ------------------------------------------------- BUZZSPROUT
+            The podcast needs a file nobody can fetch for us: StreamYard has no
+            API, Rumble exposes no media, YouTube has no media endpoint, and
+            Buzzsprout's own CDN blocks scripted clients. See
+            docs/PHASE-3-INVESTIGATION.md §7. So the operator supplies it, and
+            the Studio is honest about that rather than faking an audio_url. */}
+        <Panel
+          eyebrow="Buzzsprout"
+          title={
+            buzzsproutPub?.externalId
+              ? `Episode ${buzzsproutPub.externalId}`
+              : "Not linked yet"
+          }
+          actions={
+            <StateBadge
+              tone={
+                buzzsproutPub?.externalId
+                  ? PUBLICATION_STATE_TONE[buzzsproutPub.state]
+                  : "waiting"
+              }
+              label={
+                buzzsproutPub?.externalId
+                  ? PUBLICATION_STATE_LABEL[buzzsproutPub.state]
+                  : "Audio required"
+              }
+            />
+          }
+        >
+          <BuzzsproutAudioUpload
+            episodeId={episode.id}
+            hasAudio={!!buzzsproutPub?.externalUrl}
+            blockedReason={
+              episode.approvedTitle
+                ? null
+                : "Approve the episode copy first — the upload carries the approved " +
+                  "title and show notes with it, and audio does not bypass review."
+            }
+          />
+        </Panel>
+
         <Panel
           eyebrow="Activity"
           title="Append-only history"

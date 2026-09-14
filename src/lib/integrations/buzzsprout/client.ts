@@ -264,12 +264,12 @@ export async function updateEpisode(
 }
 
 /**
- * Create an episode.
+ * Create an episode from a URL Buzzsprout will fetch.
  *
- * Unused until the audio-source question is answered — see
- * `docs/PHASE-3-INVESTIGATION.md`. Present because `createEpisode` without an
- * `audio_url` is precisely the fake this phase was told not to build, and
- * having the function refuse that is clearer than not having it.
+ * Refuses without audio on purpose. A podcast episode with no audio file is not
+ * an episode, and creating one would be exactly the fake this phase exists to
+ * avoid — made worse by the fact that Buzzsprout documents no DELETE, so the
+ * empty shell could not be cleanly removed afterwards.
  */
 export async function createEpisode(fields: EpisodeWrite): Promise<BuzzsproutEpisode> {
   if (!fields.audio_url) {
@@ -286,6 +286,72 @@ export async function createEpisode(fields: EpisodeWrite): Promise<BuzzsproutEpi
     { method: "POST", body: fields },
   );
   return toEpisode(data);
+}
+
+/**
+ * Send an audio file straight through to Buzzsprout.
+ *
+ * ## Why this streams rather than stores
+ *
+ * The recording is downloaded from StreamYard by an operator — there is no
+ * supported API for it (see `docs/PHASE-3-INVESTIGATION.md` §7). The audio-only
+ * export is roughly 60 MB, which is small enough to forward within one request.
+ *
+ * So the Studio does NOT keep a copy. The file arrives, it is passed to
+ * Buzzsprout, and nothing is written to disk, to Postgres or to object storage.
+ * Two reasons, both deliberate:
+ *
+ *   · Phase 0 established that the Replit filesystem does not survive a
+ *     republish. Media held anywhere but object storage is media that silently
+ *     disappears, and the safest media store is the one that does not exist.
+ *   · Buzzsprout is the system of record for podcast audio. A second copy here
+ *     would be a second source of truth for a file we do not own the canonical
+ *     version of.
+ *
+ * `podcastId` and the token never reach the client; the browser posts to our
+ * own route handler, which calls this.
+ */
+export async function uploadEpisodeAudio(
+  episodeId: number | null,
+  file: { name: string; type: string; stream: Blob },
+  fields: Omit<EpisodeWrite, "audio_url"> = {},
+): Promise<BuzzsproutEpisode> {
+  const { apiToken, podcastId } = await credential();
+
+  const form = new FormData();
+  form.append("audio_file", file.stream, file.name);
+  for (const [key, value] of Object.entries(fields)) {
+    if (value !== undefined && value !== null) form.append(key, String(value));
+  }
+
+  // PUT onto an existing episode when we have one, POST to create otherwise.
+  // Attaching to an existing episode is always preferable: Buzzsprout has no
+  // DELETE, so a mistaken create cannot be undone.
+  const path = episodeId
+    ? `/${podcastId}/episodes/${episodeId}.json`
+    : `/${podcastId}/episodes.json`;
+
+  const res = await fetch(`${BASE}${path}`, {
+    method: episodeId ? "PUT" : "POST",
+    headers: {
+      authorization: `Token token=${apiToken}`,
+      accept: "application/json",
+      // No content-type: fetch sets the multipart boundary itself.
+    },
+    body: form,
+  });
+
+  const text = await res.text();
+  if (!res.ok) {
+    throw new BuzzsproutApiError(
+      res.status,
+      text.slice(0, 500),
+      res.status === 413
+        ? "Buzzsprout rejected the file as too large."
+        : `Buzzsprout returned ${res.status} on the audio upload.`,
+    );
+  }
+  return toEpisode(JSON.parse(text) as Record<string, unknown>);
 }
 
 /** Verify a token before storing it, and discover what it points at. */
