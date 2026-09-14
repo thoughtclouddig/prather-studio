@@ -370,3 +370,67 @@ merch *revenue* alongside channel growth, the source is WooCommerce's
 authenticated reports endpoint (`/wp-json/wc/v3/reports/sales`), which needs a
 consumer key and belongs with the Phase 4 metrics work. If the goal is merch
 *promotion*, the standing-block model built in Phase 3 already does it.
+
+---
+
+## 7. The audio source — where the MP3 actually comes from
+
+Phase 3 §26 asked this before any audio architecture was designed, which was
+the right order: the answer rules out the obvious approach.
+
+### The evidence
+
+**The MP3 is 7–9 s longer than the YouTube video, every time** (§4, median 8 s
+across 15 episodes). That margin is not arbitrary. YouTube's
+`actualStartTime` is consistently 7–8 s after its `scheduledStartTime` —
+`18:00:07`, `18:00:08` against an `18:00:00` slot — which is the RTMP ingest
+handshake. So the recording that became the MP3 **started roughly 8 seconds
+before YouTube began capturing**, and the only thing running at that moment is
+the encoder.
+
+The encoder is StreamYard, established independently in §1 by the affiliate
+promo and the twin ingest streams.
+
+**Conclusion: the MP3 is produced from the StreamYard recording, not from
+YouTube.** If it were derived from the YouTube video the durations would match
+exactly rather than differ by a constant.
+
+### Why the Studio cannot automate it today
+
+| Route | Status |
+|---|---|
+| StreamYard recording | **No public API at all.** Confirmed in Phase 0 and unchanged; its Zapier app covers webinar registrants only. |
+| Rumble recording | No VOD listing and no media retrieval — Phase 0, unchanged. |
+| YouTube media | The Data API returns metadata and captions. There is no endpoint that returns the media, and extracting it another way is against YouTube's terms. |
+| Re-fetching the published MP3 | `audio.buzzsprout.com` sits behind **Cloudflare, which returns 403 to a scripted client**. Verified by request. Working around that would be bot-detection evasion and is not something this project will do. |
+
+So there is no supported path from any connected provider to an audio file.
+
+### What this means for Phase 3
+
+Buzzsprout's API *does* accept an `audio_url` that it fetches, so the write side
+is solved the moment a file exists somewhere reachable. What is missing is the
+file.
+
+Per §30, the correct outcome is therefore **`BUZZSPROUT READY — AUDIO
+REQUIRED`**: approved metadata is prepared, the linkage is real, and the Studio
+states plainly that a human still has to supply the audio. It does not
+fabricate an `audio_url`, and `createEpisode` refuses to run without one.
+
+Truthful partial automation, which is what was asked for.
+
+### The open question for Jeff — a human workflow question, not a technical one
+
+The remaining unknown is what actually happens today between StreamYard and
+Buzzsprout:
+
+1. Is the recording downloaded from StreamYard by hand after each show?
+2. Does it land anywhere with a stable URL — Drive, Dropbox, object storage?
+3. Is it converted to MP3 first, and by what?
+4. Who uploads it to Buzzsprout, and through the web UI or otherwise?
+
+If the file already passes through somewhere with a reachable URL, the Studio
+can take it from there and the remaining manual step collapses to one paste.
+If it goes StreamYard → laptop → browser upload, then automating it needs
+somewhere to put the file, which is a storage decision rather than an
+integration one.
