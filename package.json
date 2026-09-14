@@ -11,8 +11,6 @@
     "worker:dev": "tsx watch --tsconfig worker/tsconfig.json worker/index.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
-    "db:seed": "tsx src/db/seed.ts",
-    "db:reset": "tsx src/db/reset.ts",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -21,7 +19,11 @@
     "db:push": "drizzle-kit push",
     "job:rumble-poll": "node scripts/enqueue-job.mjs rumble.poll_live",
     "job:health-check": "node scripts/enqueue-job.mjs integration.health_check",
-    "check:contrast": "node scripts/check-contrast.mjs"
+    "check:contrast": "node scripts/check-contrast.mjs",
+    "db:seed:dev": "tsx --tsconfig worker/tsconfig.json src/db/seed.ts",
+    "db:reset:dev": "tsx --tsconfig worker/tsconfig.json src/db/reset.ts",
+    "db:seed": "npm run db:seed:dev",
+    "db:reset": "npm run db:reset:dev"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

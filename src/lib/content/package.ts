@@ -171,7 +171,7 @@ Package this episode. Ground every field in the transcript above.`,
     durationSeconds: transcript.durationSeconds ?? undefined,
   });
 
-  const draftsCreated = await writeDrafts(episodeId, pkg);
+  const draftsCreated = await writeDrafts(episodeId, pkg, found.transcript.id);
 
   await recordActivity({
     actor,
@@ -210,6 +210,7 @@ Package this episode. Ground every field in the transcript above.`,
 export async function writeDrafts(
   episodeId: string,
   pkg: EpisodePackage,
+  sourceTranscriptId: string | null = null,
 ): Promise<number> {
   const base = {
     episodeId,
@@ -217,6 +218,9 @@ export async function writeDrafts(
     state: "PROPOSED" as const,
     model: PACKAGE_MODEL,
     promptVersion: PROMPT_VERSION,
+    // Which recording this copy describes. Without it, a re-fetched transcript
+    // leaves approved copy silently describing a different show.
+    sourceTranscriptId,
   };
 
   const rows: Array<typeof episodeContentDrafts.$inferInsert> = [

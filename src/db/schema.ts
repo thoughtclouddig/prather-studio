@@ -244,6 +244,13 @@ export const settings = pgTable("settings", {
   /** Real Jeff writing. Seeds the future content engine; nothing reads it yet. */
   aiVoiceProfile: text("ai_voice_profile"),
   aiVoiceNotes: text("ai_voice_notes"),
+  /**
+   * Which environment this DATABASE is. Claimed by the first worker to
+   * connect, then enforced: a worker declaring a different APP_ENV is refused.
+   * Deliberately stored here rather than read from the connecting process, so
+   * the comparison is against something that process did not supply.
+   */
+  appEnvironment: text("app_environment"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

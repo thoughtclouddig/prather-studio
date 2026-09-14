@@ -19,6 +19,7 @@ import {
 } from "@/db/schema";
 import { authorize } from "@/lib/auth/authorize";
 import { recordActivity } from "@/lib/domain/activity";
+import { POLL_LEAD_MS } from "@/lib/domain/broadcast-poll";
 
 /**
  * Default intent per platform, from what each one can actually do today.
@@ -124,6 +125,21 @@ export async function createEpisode(
 
     return created!;
   });
+
+  // Start watching for the broadcast. The poller decides its own cadence and
+  // sleeps until the slot is near, so scheduling it now costs nothing and
+  // means nobody has to remember to start it on show day.
+  if (input.scheduledAt) {
+    const { enqueue } = await import("@/lib/queue/queue");
+    await enqueue({
+      kind: "youtube.poll_broadcast",
+      idempotencyKey: `youtube.poll_broadcast:${episode.id}`,
+      episodeId: episode.id,
+      maxAttempts: 5,
+      runAfter: new Date(input.scheduledAt.getTime() - POLL_LEAD_MS),
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+  }
 
   await recordActivity({
     actor: { kind: "user", id: user.id, name: user.name },

@@ -20,6 +20,9 @@ import { recordActivity, SYSTEM_ACTOR, type Actor } from "@/lib/domain/activity"
 import { getVideo, type YouTubeVideo } from "@/lib/integrations/youtube/client";
 import { rankCandidates } from "@/lib/integrations/youtube/matching";
 import type { RumbleObservation } from "@/lib/integrations/rumble/observer";
+import { applyBroadcastEvidence } from "./broadcast-apply";
+import { lastSignalFor, recordBroadcastObservation } from "./observations";
+import { MAX_PROXIMITY_MS, matchRumbleStream } from "./rumble-match";
 
 const actorFor = (user: User): Actor => ({ kind: "user", id: user.id, name: user.name });
 
@@ -202,151 +205,300 @@ export interface RumbleApplyResult {
   matchedEpisodeId: string | null;
   needsAttention: string | null;
   transition: string | null;
+  /** True when this poll recorded evidence that was not already on file. */
+  recordedEvidence: boolean;
 }
 
 /**
- * Apply one Rumble observation to the episode schedule.
+ * Apply one Rumble poll.
  *
- * Matching is by air-time proximity first (the show has a fixed slot), title
- * second. An ambiguous or absent match produces a Needs Attention item — the
- * system never guesses which episode a live stream belongs to.
+ * Rumble is an OBSERVER. Nothing here publishes, and the Activity wording says
+ * so — "RUMBLE STREAM OBSERVED", never "PUBLISHED TO RUMBLE".
  *
- * End-of-stream is inferred: Rumble empties `livestreams` when a broadcast
- * finishes, so a Rumble publication left in LIVE with nothing live now is what
- * "the show ended" looks like.
+ * The poll's job is to turn what Rumble says into durable evidence. It does not
+ * decide what the evidence means: that is `evaluateBroadcast`, applied through
+ * `applyBroadcastEvidence`, so Rumble and YouTube reach the episode by the
+ * same road.
+ *
+ * Writes are transition-only. Rumble is polled every minute for hours; a row
+ * per poll would bury the two rows that matter under several hundred that do
+ * not.
  */
 export async function applyRumbleObservation(
   observation: RumbleObservation,
   actor: Actor = SYSTEM_ACTOR,
+  now = new Date(),
 ): Promise<RumbleApplyResult> {
   const live = observation.liveNow;
 
   if (!live) {
-    const ended = await closeFinishedRumbleStreams(actor);
-    return { matchedEpisodeId: ended, needsAttention: null, transition: ended ? "ENDED" : null };
+    return closeFinishedRumbleStreams(actor, now);
   }
 
-  // Already tracking this stream? Just refresh it.
-  const [tracked] = await db
-    .select()
-    .from(episodePublications)
-    .where(
-      and(
-        eq(episodePublications.platform, "RUMBLE"),
-        eq(episodePublications.externalId, String(live.id)),
-      ),
-    )
-    .limit(1);
+  const streamId = String(live.id);
+  const startedAt = live.createdOn ? new Date(live.createdOn) : now;
+
+  // Have we already recorded this stream as live? If so there is nothing new.
+  const previous = await lastSignalFor("RUMBLE", streamId);
+  const alreadyLive = previous?.signal === "LIVE";
+
+  const tracked = await trackedRumblePublication(streamId);
+  const episodeId =
+    tracked?.episodeId ?? (await matchRumbleToEpisode(live, startedAt, actor, now));
+
+  const { created } = await recordBroadcastObservation({
+    provider: "RUMBLE",
+    signal: "LIVE",
+    externalId: streamId,
+    observedAt: startedAt,
+    episodeId,
+    terminal: true, // one "this stream went live at T" fact, however often polled
+    summary: `Rumble reports livestream "${live.title}" is active`,
+    detail: {
+      streamId,
+      title: live.title,
+      watchingNow: live.watchingNow,
+      startedAt: startedAt.toISOString(),
+    },
+  });
+
+  if (!episodeId) {
+    return {
+      matchedEpisodeId: null,
+      needsAttention: await pendingAmbiguity(live.title, startedAt, now),
+      transition: null,
+      recordedEvidence: created,
+    };
+  }
 
   if (tracked) {
     await db
       .update(episodePublications)
-      .set({ state: "LIVE", lastSyncAt: new Date(), updatedAt: new Date() })
+      .set({ state: "LIVE", lastSyncAt: now, updatedAt: now })
       .where(eq(episodePublications.id, tracked.id));
-    return { matchedEpisodeId: tracked.episodeId, needsAttention: null, transition: null };
+  } else {
+    await db
+      .update(episodePublications)
+      .set({
+        externalId: streamId,
+        externalUrl: `https://rumble.com/embed/${streamId}/`,
+        state: "LIVE",
+        lastSyncAt: now,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(episodePublications.episodeId, episodeId),
+          eq(episodePublications.platform, "RUMBLE"),
+        ),
+      );
   }
 
-  // New stream — find the episode it belongs to.
-  const window = 6 * 3_600_000;
-  const now = Date.now();
-  const nearby = await db
-    .select()
-    .from(episodes)
-    .where(
-      and(
-        isNull(episodes.airedAt),
-        gte(episodes.scheduledAt, new Date(now - window)),
-        lte(episodes.scheduledAt, new Date(now + window)),
-      ),
-    )
-    .orderBy(desc(episodes.scheduledAt));
-
-  if (nearby.length === 0) {
-    return {
-      matchedEpisodeId: null,
-      needsAttention: `Rumble is live ("${live.title}") but no scheduled episode is within 6 hours. Create or reschedule the episode, then link it.`,
-      transition: null,
-    };
-  }
-  if (nearby.length > 1) {
-    return {
-      matchedEpisodeId: null,
-      needsAttention: `Rumble is live ("${live.title}") and ${nearby.length} episodes are scheduled nearby. Confirm which one this is.`,
-      transition: null,
-    };
+  if (created && !alreadyLive) {
+    await recordActivity({
+      actor,
+      verb: "rumble.observed_live",
+      subjectType: "episode",
+      subjectId: episodeId,
+      episodeId,
+      // The wording matters: the Studio did not publish this.
+      summary:
+        `RUMBLE STREAM OBSERVED — Rumble reports "${live.title}" is live. ` +
+        "The Studio did not publish this; it is watching.",
+      after: { rumbleId: streamId, watchingNow: live.watchingNow, observed: true },
+    });
   }
 
-  const episode = nearby[0]!;
-  const [publication] = await db
-    .update(episodePublications)
-    .set({
-      externalId: String(live.id),
-      externalUrl: `https://rumble.com/embed/${live.id}/`,
-      state: "LIVE",
-      lastSyncAt: new Date(),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(episodePublications.episodeId, episode.id),
-        eq(episodePublications.platform, "RUMBLE"),
-      ),
-    )
-    .returning();
+  const applied = await applyBroadcastEvidence(episodeId, actor, now);
 
-  await db
-    .update(episodes)
-    .set({ phase: "LIVE", updatedAt: new Date() })
-    .where(eq(episodes.id, episode.id));
-
-  await recordActivity({
-    actor,
-    verb: "rumble.observed_live",
-    subjectType: "publication",
-    subjectId: publication?.id,
-    episodeId: episode.id,
-    // The wording matters: the Studio did not publish this.
-    summary: `OBSERVED — Rumble reports "${live.title}" is live. The Studio did not publish this; it is watching.`,
-    after: { rumbleId: String(live.id), watchingNow: live.watchingNow, observed: true },
-  });
-
-  return { matchedEpisodeId: episode.id, needsAttention: null, transition: "LIVE" };
+  return {
+    matchedEpisodeId: episodeId,
+    needsAttention: applied.attention,
+    transition: applied.phaseChange ? applied.phaseChange.to : null,
+    recordedEvidence: created,
+  };
 }
 
-/** A stream we had marked LIVE that Rumble no longer reports has finished. */
-async function closeFinishedRumbleStreams(actor: Actor): Promise<string | null> {
+/**
+ * Rumble no longer lists a stream we were watching.
+ *
+ * This is the ONLY end signal Rumble provides — there is no completion event
+ * and no VOD listing to check against. So the evidence is recorded honestly as
+ * an inference, and `evaluateBroadcast` decides what it is worth. YouTube's
+ * `actualEndTime`, when it arrives, supersedes it with a real time.
+ */
+async function closeFinishedRumbleStreams(
+  actor: Actor,
+  now: Date,
+): Promise<RumbleApplyResult> {
   const stale = await db
     .select()
     .from(episodePublications)
     .where(
       and(eq(episodePublications.platform, "RUMBLE"), eq(episodePublications.state, "LIVE")),
     );
-  if (stale.length === 0) return null;
+  if (stale.length === 0) {
+    return {
+      matchedEpisodeId: null,
+      needsAttention: null,
+      transition: null,
+      recordedEvidence: false,
+    };
+  }
 
-  const now = new Date();
+  let recorded = false;
+  let lastEpisodeId: string | null = null;
+  let attention: string | null = null;
+  let transition: string | null = null;
+
   for (const publication of stale) {
+    const streamId = publication.externalId;
+    const { created } = await recordBroadcastObservation({
+      provider: "RUMBLE",
+      signal: "OFFLINE",
+      externalId: streamId,
+      observedAt: now,
+      episodeId: publication.episodeId,
+      summary:
+        "Rumble stopped listing this stream after previously reporting it live",
+      detail: { streamId, inferred: true },
+    });
+    recorded ||= created;
+
     await db
       .update(episodePublications)
       .set({ state: "PUBLISHED", publishedAt: now, lastSyncAt: now, updatedAt: now })
       .where(eq(episodePublications.id, publication.id));
 
-    await db
-      .update(episodes)
-      .set({ phase: "PRODUCING", airedAt: now, updatedAt: now })
-      .where(and(eq(episodes.id, publication.episodeId), isNull(episodes.airedAt)));
+    if (created) {
+      await recordActivity({
+        actor,
+        verb: "rumble.observed_ended",
+        subjectType: "episode",
+        subjectId: publication.episodeId,
+        episodeId: publication.episodeId,
+        summary:
+          "SHOW COMPLETION INFERRED — Rumble stopped reporting this stream as live " +
+          "after previously observing it. Rumble emits no completion event, so the " +
+          "end is inferred from the stream disappearing.",
+        before: { state: "LIVE" },
+        after: { state: "PUBLISHED", observed: true, inferred: true },
+      });
+    }
 
+    const applied = await applyBroadcastEvidence(publication.episodeId, actor, now);
+    lastEpisodeId = publication.episodeId;
+    attention ??= applied.attention;
+    transition ??= applied.phaseChange ? applied.phaseChange.to : null;
+  }
+
+  return {
+    matchedEpisodeId: lastEpisodeId,
+    needsAttention: attention,
+    transition: transition ?? "ENDED",
+    recordedEvidence: recorded,
+  };
+}
+
+async function trackedRumblePublication(streamId: string) {
+  const [row] = await db
+    .select()
+    .from(episodePublications)
+    .where(
+      and(
+        eq(episodePublications.platform, "RUMBLE"),
+        eq(episodePublications.externalId, streamId),
+      ),
+    )
+    .limit(1);
+  return row;
+}
+
+/**
+ * Find the episode a live stream belongs to.
+ *
+ * Candidates are episodes scheduled within 6 hours either side — NOT "episodes
+ * with no airedAt". That distinction is the one commit cb1e8a1 was about:
+ * `airedAt` is only ever written by an observer, so using its absence as a
+ * filter silently excludes nothing and includes everything ancient.
+ */
+async function matchRumbleToEpisode(
+  live: { id: string | number; title: string },
+  startedAt: Date,
+  actor: Actor,
+  now: Date,
+): Promise<string | null> {
+  // The SQL window spans the whole live interval plus the tolerance on each
+  // side, so a stream created well before it went live is still considered.
+  const from = new Date(
+    Math.min(startedAt.getTime(), now.getTime()) - MAX_PROXIMITY_MS,
+  );
+  const to = new Date(Math.max(startedAt.getTime(), now.getTime()) + MAX_PROXIMITY_MS);
+  const nearby = await db
+    .select()
+    .from(episodes)
+    .where(and(gte(episodes.scheduledAt, from), lte(episodes.scheduledAt, to)))
+    .orderBy(desc(episodes.scheduledAt));
+
+  const result = matchRumbleStream(nearby, {
+    title: live.title,
+    startedAt,
+    observedAt: now,
+  });
+
+  if (!result.matched) {
     await recordActivity({
       actor,
-      verb: "rumble.observed_ended",
-      subjectType: "publication",
-      subjectId: publication.id,
-      episodeId: publication.episodeId,
-      summary:
-        "OBSERVED — Rumble stopped reporting this stream as live, so the show has ended. " +
-        "Episode moved to PRODUCING.",
-      before: { state: "LIVE" },
-      after: { state: "PUBLISHED", observed: true },
+      verb: "rumble.needs_attention",
+      subjectType: "integration",
+      subjectId: "RUMBLE",
+      summary: result.ambiguous ?? "Rumble stream could not be matched to an episode.",
+      after: {
+        streamTitle: live.title,
+        candidates: result.candidates.map((c) => ({
+          episodeId: c.episode.id,
+          title: c.episode.workingTitle,
+          confidence: Number(c.confidence.toFixed(2)),
+          reasons: c.reasons,
+        })),
+      },
     });
+    return null;
   }
-  return stale[0]!.episodeId;
+
+  await recordActivity({
+    actor,
+    verb: "rumble.matched",
+    subjectType: "episode",
+    subjectId: result.matched.episode.id,
+    episodeId: result.matched.episode.id,
+    summary:
+      `RUMBLE STREAM OBSERVED — matched to this episode. ` +
+      result.matched.reasons.join("; ") + ".",
+    after: {
+      confidence: Number(result.matched.confidence.toFixed(2)),
+      streamTitle: live.title,
+      observedAt: now.toISOString(),
+    },
+  });
+  return result.matched.episode.id;
+}
+
+/** The message shown while a stream is live but unattributed. */
+async function pendingAmbiguity(
+  title: string,
+  startedAt: Date,
+  now: Date,
+): Promise<string> {
+  const from = new Date(
+    Math.min(startedAt.getTime(), now.getTime()) - MAX_PROXIMITY_MS,
+  );
+  const to = new Date(Math.max(startedAt.getTime(), now.getTime()) + MAX_PROXIMITY_MS);
+  const nearby = await db
+    .select()
+    .from(episodes)
+    .where(and(gte(episodes.scheduledAt, from), lte(episodes.scheduledAt, to)));
+  return (
+    matchRumbleStream(nearby, { title, startedAt, observedAt: now }).ambiguous ?? ""
+  );
 }

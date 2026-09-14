@@ -5,7 +5,7 @@
  * different things, and only a human moves a draft between them. Nothing
  * downstream may read a draft that is not APPROVED.
  */
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   episodeContentDrafts,
@@ -14,7 +14,7 @@ import {
   type User,
 } from "@/db/schema";
 import { authorize } from "@/lib/auth/authorize";
-import { recordActivity } from "./activity";
+import { recordActivity, SYSTEM_ACTOR, type Actor } from "./activity";
 import { fieldLabel } from "./vocabulary";
 
 function actorFor(user: User) {
@@ -175,4 +175,83 @@ export async function editAndApproveDraft(
     after: { state: "APPROVED", value },
   });
   return replacement;
+}
+
+/* ---------------------------------------------------------------- staleness */
+
+/**
+ * Mark drafts stale when the material they were written from is superseded.
+ *
+ * Packaging is automatic now, so a draft can outlive its source: a transcript
+ * gets re-fetched (a better caption track appears, an operator re-runs it) and
+ * every headline, description and chapter list already written describes a
+ * recording that is no longer the episode's.
+ *
+ * Approval is deliberately NOT revoked. A human made that decision and
+ * silently undoing it would be worse than the problem — the operator is told
+ * the approval now rests on obsolete input and decides for themselves.
+ *
+ * This is kept proportional on purpose. There is no dependency graph and no
+ * invalidation framework: one column recording which transcript a draft came
+ * from answers the only question anyone has.
+ */
+export async function markDraftsStaleForTranscript(
+  episodeId: string,
+  currentTranscriptId: string,
+  actor: Actor = SYSTEM_ACTOR,
+): Promise<number> {
+  const now = new Date();
+  const stale = await db
+    .update(episodeContentDrafts)
+    .set({
+      staleAt: now,
+      staleReason:
+        "The transcript this copy was written from has been replaced by a newer one.",
+    })
+    .where(
+      and(
+        eq(episodeContentDrafts.episodeId, episodeId),
+        isNotNull(episodeContentDrafts.sourceTranscriptId),
+        ne(episodeContentDrafts.sourceTranscriptId, currentTranscriptId),
+        isNull(episodeContentDrafts.staleAt),
+        inArray(episodeContentDrafts.state, ["PROPOSED", "APPROVED"]),
+      ),
+    )
+    .returning({ id: episodeContentDrafts.id, state: episodeContentDrafts.state });
+
+  if (stale.length === 0) return 0;
+
+  const approved = stale.filter((d) => d.state === "APPROVED").length;
+  await recordActivity({
+    actor,
+    verb: "content.stale",
+    subjectType: "episode",
+    subjectId: episodeId,
+    episodeId,
+    summary:
+      `CONTENT NEEDS RE-REVIEW — ${stale.length} draft(s) were generated from a ` +
+      `transcript that has since been replaced` +
+      (approved > 0
+        ? `, including ${approved} already approved. Approval has not been revoked, ` +
+          "but it now rests on material that is no longer the episode's."
+        : "."),
+    after: { staleCount: stale.length, approvedAffected: approved },
+  });
+
+  return stale.length;
+}
+
+/** Are any drafts for this episode stale? Drives the Review banner. */
+export async function staleDraftCount(episodeId: string): Promise<number> {
+  const rows = await db
+    .select({ id: episodeContentDrafts.id })
+    .from(episodeContentDrafts)
+    .where(
+      and(
+        eq(episodeContentDrafts.episodeId, episodeId),
+        isNotNull(episodeContentDrafts.staleAt),
+        inArray(episodeContentDrafts.state, ["PROPOSED", "APPROVED"]),
+      ),
+    );
+  return rows.length;
 }

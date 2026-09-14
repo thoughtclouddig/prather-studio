@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { activityEvents, episodePublications, episodes } from "@/db/schema";
+import {
+  activityEvents,
+  broadcastObservations,
+  episodePublications,
+  episodes,
+} from "@/db/schema";
 import { parseObservation } from "@/lib/integrations/rumble/observer";
 import { applyRumbleObservation } from "@/lib/domain/linkage";
 import { makeEpisode, makePublication, makeShow, resetDb } from "./helpers";
@@ -127,7 +132,7 @@ describe("applying an observation to the schedule", () => {
   it("makes an unmatched live stream a Needs Attention item, not a guess", async () => {
     const result = await applyRumbleObservation(parseObservation(RAW_LIVE));
     expect(result.matchedEpisodeId).toBeNull();
-    expect(result.needsAttention).toContain("no scheduled episode");
+    expect(result.needsAttention).toContain("no episode is scheduled");
   });
 
   /** Two candidates must never resolve automatically. */
@@ -137,7 +142,8 @@ describe("applying an observation to the schedule", () => {
 
     const result = await applyRumbleObservation(parseObservation(RAW_LIVE));
     expect(result.matchedEpisodeId).toBeNull();
-    expect(result.needsAttention).toContain("2 episodes are scheduled nearby");
+    expect(result.needsAttention).toContain("2 episodes are");
+    expect(result.needsAttention).toContain("will not choose");
 
     const live = await db
       .select()
@@ -151,7 +157,9 @@ describe("applying an observation to the schedule", () => {
     await applyRumbleObservation(parseObservation(RAW_LIVE));
 
     const result = await applyRumbleObservation(parseObservation(RAW_IDLE));
-    expect(result.transition).toBe("ENDED");
+    // The disappearance is evidence; the episode moving to PRODUCING is what
+    // that evidence is worth once `evaluateBroadcast` has weighed it.
+    expect(result.transition).toBe("PRODUCING");
 
     const [pub] = await db
       .select()
@@ -187,6 +195,48 @@ describe("applying an observation to the schedule", () => {
 
   it("an idle poll with nothing tracked is a no-op", async () => {
     const result = await applyRumbleObservation(parseObservation(RAW_IDLE));
-    expect(result).toEqual({ matchedEpisodeId: null, needsAttention: null, transition: null });
+    expect(result).toEqual({
+      matchedEpisodeId: null,
+      needsAttention: null,
+      transition: null,
+      recordedEvidence: false,
+    });
+  });
+
+  /**
+   * The evidence trail is the point: a restarted worker must be able to reach
+   * the same conclusion without having witnessed the transition.
+   */
+  it("records durable evidence for the live and the ended transitions", async () => {
+    const episodeId = await scheduledEpisodeNow();
+    await applyRumbleObservation(parseObservation(RAW_LIVE));
+    await applyRumbleObservation(parseObservation(RAW_IDLE));
+
+    const rows = await db
+      .select()
+      .from(broadcastObservations)
+      .where(eq(broadcastObservations.episodeId, episodeId));
+
+    expect(rows.map((r) => r.signal).sort()).toEqual(["LIVE", "OFFLINE"]);
+    expect(rows.every((r) => r.provider === "RUMBLE")).toBe(true);
+  });
+
+  /** Replay must be harmless — the worker legitimately re-sees what it saw. */
+  it("replaying the same poll does not add a second observation", async () => {
+    const episodeId = await scheduledEpisodeNow();
+    await applyRumbleObservation(parseObservation(RAW_LIVE));
+    await applyRumbleObservation(parseObservation(RAW_LIVE));
+    await applyRumbleObservation(parseObservation(RAW_LIVE));
+
+    const rows = await db
+      .select()
+      .from(broadcastObservations)
+      .where(
+        and(
+          eq(broadcastObservations.episodeId, episodeId),
+          eq(broadcastObservations.signal, "LIVE"),
+        ),
+      );
+    expect(rows).toHaveLength(1);
   });
 });
