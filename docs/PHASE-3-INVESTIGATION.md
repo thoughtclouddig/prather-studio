@@ -186,3 +186,105 @@ exactly that margin.
 which matters, because it means Studio cannot derive the current MP3 from the
 YouTube video. The margin is evidence, not proof; the human workflow still has
 to be confirmed. See the open question in the Phase 3 report.
+
+---
+
+## 5. Analytics capability — and a finding that reframes the duplicate
+
+`yt-analytics.readonly` was granted in Phase 2, so this could be measured
+rather than guessed. Probed 2026-09-14 with `scripts/investigate-analytics.ts`
+and `scripts/investigate-retention.ts`. Read-only.
+
+### The Sep 8 episode is not watched by 12,229 people
+
+Per-video report for the two copies of the same broadcast, Sep 8–14:
+
+| | `cqbI52zgl7o` (9:16) | `NNR4wUsprmo` (16:9) |
+|---|---|---|
+| Views | 12,243 | 29 |
+| Average view duration | **39 s** | 16 s |
+| Average view percentage | **0.81 %** | 0.32 % |
+| Watch time | 3,212 min | 2 min |
+| Subscribers gained | 11 | 0 |
+
+Broken down by where the views came from:
+
+```
+cqbI52zgl7o   SHORTS           9,678 views    avg  33 s
+              IMMERSIVE_LIVE   2,405 views    avg  55 s
+              SUBSCRIBER          77 views    avg 279 s   <-- 4.6 minutes
+              everything else     83 views
+
+NNR4wUsprmo   SUBSCRIBER          28 views    avg  19 s
+              NOTIFICATION         1 view
+```
+
+Devices for the portrait copy: MOBILE 11,118 · TABLET 1,066 · DESKTOP 9 · TV 2.
+
+**The vertical copy is being injected into swipe feeds.** 9,678 of its views
+are Shorts traffic averaging 33 seconds of an 85-minute show, and a further
+2,405 are the immersive live feed at 55 seconds. Those are autoplays that got
+swiped past, not an audience.
+
+The only traffic that behaves like an audience is `SUBSCRIBER`, at **279
+seconds — roughly 7× longer than feed traffic**, and there were 77 of them.
+Across both copies the real engaged audience for that broadcast is on the order
+of **~105 views**, not 12,229.
+
+For comparison, other channel videos average 71–94 % view percentage; those are
+short clips, where finishing is easy. The full episodes sit near 1 %.
+
+### What this changes
+
+Phase 3 §4 already forbade `highest views = canonical`. The reason turns out to
+be stronger than "two pairs is not a rule": **view count on this channel is
+measuring feed distribution, not viewing.** A tactic tuned to maximise it would
+be tuned to maximise swipe-throughs.
+
+Watch time, average view percentage, and subscriber-sourced views are the
+metrics that describe the actual audience.
+
+### Available, and not
+
+| Metric | Status |
+|---|---|
+| Daily channel series (views, watch time, subs gained/lost) | **Available retroactively** — 102 rows returned for Jun 1 → Sep 12 |
+| Per-video engagement (views, watch time, avg duration, avg %, likes, comments, shares, subs gained) | **Available** |
+| Traffic source, device, per video | **Available** |
+| **Thumbnail impressions and click-through rate** | **NOT available.** `impressions` / `impressionClickThroughRate` return 400 *Unknown identifier*. Creator Studio only. |
+| Ad impressions, revenue | 401 — needs Content Owner permission |
+| `audienceWatchRatio`, `relativeRetentionPerformance` | 400 — query not supported on this account |
+
+That fourth row matters for thumbnails: the natural success metric for a
+thumbnail cannot be read through the API. Views arriving from
+`YT_SEARCH`, `RELATED_VIDEO` and `YT_OTHER_PAGE` are a usable proxy, and
+Creator Studio shows the real number to a human.
+
+### History is recoverable for YouTube only
+
+YouTube Analytics backfills — the daily series returned three months on request.
+Nothing else does:
+
+| Source | What it gives | Backfillable? |
+|---|---|---|
+| YouTube Analytics | Daily time series | **Yes** |
+| Rumble Live Stream API | Current follower/subscriber totals only | **No** |
+| Buzzsprout | `total_plays` per episode, point-in-time | **No** |
+
+So for Rumble and Buzzsprout, every day without a snapshot is a day of growth
+history that cannot be recovered later. That is the one part of this worth
+building before the dashboard that consumes it.
+
+### On "evaluate and adjust tactics"
+
+At two shows a week the channel produces roughly 8–9 episodes a month. That is
+far too small a sample to attribute a change in click-through or retention to a
+change in title or thumbnail style; anything automated would be fitting noise
+and would then propose editorial changes on the strength of it.
+
+What the data does support is structural findings of the kind above — a 0.81 %
+view percentage against a 71–94 % baseline is not a marginal effect and needs
+no statistics to act on. The defensible design is: measure, attribute, surface
+to a human with the sample size stated, and never let the system change
+editorial direction on its own. That is the same rule as HUMAN APPROVAL, applied
+to strategy instead of copy.
