@@ -13,6 +13,7 @@ import { applyYouTubeUpdate } from "@/lib/domain/youtube-publish";
 import { disconnect, saveCredential } from "@/lib/integrations/credentials";
 import { verifyToken } from "@/lib/integrations/buzzsprout/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
+import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
 import { listRecentVideos } from "@/lib/integrations/youtube/client";
 import { enqueue } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
@@ -193,14 +194,19 @@ export async function connectRumbleAction(
   _prev: ActionState,
   formData: FormData,
 ): Promise<ActionState> {
-  const apiUrl = String(formData.get("apiUrl") ?? "").trim();
+  const entered = String(formData.get("apiUrl") ?? "").trim();
   return guarded(async () => {
     const user = await requirePermission("integration.configure");
-    if (!/^https:\/\/rumble\.com\//i.test(apiUrl)) {
-      throw new Error(
-        "Expected a URL from rumble.com/account/livestream-api starting with https://rumble.com/.",
-      );
+
+    // Accept either the whole URL or just the key — Rumble encodes the user id
+    // inside the key, so the URL reconstructs exactly. Refuse an RTMP ingest
+    // URL by name: that is the encoder's destination, not a data source.
+    const input = normalizeRumbleInput(entered);
+    if (input.kind === "rtmp" || input.kind === "unknown") {
+      throw new Error(input.reason);
     }
+    const apiUrl = input.apiUrl;
+
     // Prove it works before storing it.
     const observation = await testConnection(apiUrl);
     await saveCredential({

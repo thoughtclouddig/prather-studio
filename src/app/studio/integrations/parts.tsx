@@ -85,19 +85,26 @@ export function ConnectRumbleForm() {
   return (
     <form action={action} className="space-y-2">
       <label className="block">
-        <span className="eyebrow block mb-1.5">Live Stream API URL</span>
+        <span className="eyebrow block mb-1.5">Live Stream API URL or key</span>
         <input
           name="apiUrl"
           type="password"
           required
           autoComplete="off"
-          placeholder="https://rumble.com/-livestream-api/get-data?key=…"
+          placeholder="Paste the whole URL, or just the key"
           className="field font-mono text-[11px]"
         />
       </label>
       <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
-        Generate it at <span className="mono">rumble.com/account/livestream-api</span>. The URL
-        contains your key, so it is stored encrypted and never displayed again.
+        Generate it at <span className="mono">rumble.com/account/livestream-api</span>. Either
+        the full URL or the key alone works — the key encodes your user ID, so the Studio can
+        rebuild the URL from it. It is tested before saving, stored encrypted, and never
+        displayed again.
+      </p>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        <strong className="text-[var(--color-signal-amber)]">Not</strong> the RTMP URL or stream
+        key from Rumble Studio&rsquo;s streamer configuration — those tell an encoder where to
+        push video and return no data.
       </p>
       <Submit className="btn btn-xs btn-primary">Test &amp; connect</Submit>
       <Feedback state={state} />
