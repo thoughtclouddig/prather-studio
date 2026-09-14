@@ -280,3 +280,257 @@ a { color: inherit; }
 
 /* Scrollbars that match the desk rather than the OS. */
 * { scrollbar-width: thin; scrollbar-color: var(--color-ink-300) transparent; }
+
+/* ==========================================================================
+   HIERARCHY
+   --------------------------------------------------------------------------
+   The desk read as generic because every block was the same block: same
+   border, same head, same uppercase eyebrow, same weight. Sixteen letterspaced
+   capitals on one screen is not a hierarchy, it is noise with a grid.
+
+   What changed:
+     · ONE thing is big. The air block is a band, not a panel among panels.
+     · Uppercase is now reserved for exactly two jobs — section eyebrows and
+       table column heads. Everything else earns rank through size, weight
+       and colour.
+     · Surfaces step. Page, sunk, panel, raised — so blocks recede or advance
+       instead of floating at one depth.
+     · The brand is present. A red rule at the top of the air band and a tally
+       light that means something, because this is a broadcast desk for a
+       specific show and not an admin template.
+   ========================================================================== */
+
+/* --- surface scale ------------------------------------------------------ */
+
+.sunk {
+  background: var(--color-ink-000);
+  border: 1px solid var(--color-ink-200);
+}
+
+.raised {
+  background: var(--color-ink-150);
+}
+
+/* --- the air band ------------------------------------------------------- */
+
+/* The one element allowed to dominate. Everything else on the dashboard is
+   subordinate to "what is the next show and how long have I got". */
+.airband {
+  position: relative;
+  background:
+    linear-gradient(180deg, var(--color-ink-150) 0%, var(--color-ink-100) 100%);
+  border: 1px solid var(--color-ink-300);
+  border-top: none;
+}
+
+/* Brand rule. The only place the saturated Prather red is used as a large
+   field, where it is decoration and carries no text. */
+.airband::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: var(--color-brand-red);
+}
+
+.airband-live::before {
+  background: linear-gradient(
+    90deg,
+    var(--color-brand-red) 0%,
+    #ff3b52 50%,
+    var(--color-brand-red) 100%
+  );
+  background-size: 200% 100%;
+  animation: sweep 2.4s linear infinite;
+}
+@keyframes sweep {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .airband-live::before { animation: none; }
+}
+
+/* --- the clock ---------------------------------------------------------- */
+
+/* The emotional centre of the screen. Tabular so the digits do not jitter as
+   the minutes tick down. */
+.clock {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  font-size: clamp(30px, 4.4vw, 46px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  color: var(--color-type-hi);
+}
+
+.clock-live    { color: var(--color-signal-red); }
+.clock-overdue { color: var(--color-signal-amber); }
+.clock-none    { color: var(--color-type-lo); }
+
+/* --- tally light -------------------------------------------------------- */
+
+/* A broadcast tally: shape and word, never colour alone. */
+.tally {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tally::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+  background: currentColor;
+}
+.tally-on  { color: var(--color-signal-red); }
+.tally-on::before { animation: throb 1.5s ease-in-out infinite; }
+.tally-next { color: var(--color-signal-amber); }
+.tally-off { color: var(--color-type-lo); }
+.tally-off::before { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+
+@keyframes throb {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 currentColor; }
+  50%      { opacity: 0.55; box-shadow: 0 0 0 4px transparent; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tally-on::before { animation: none; }
+}
+
+/* --- readiness rail ----------------------------------------------------- */
+
+/* Replaces six table rows of LABEL | BADGE | filler sentence. The sentences
+   said "Waiting on the recording" three times; that is padding, not
+   information. Detail moves to the title attribute and the episode page. */
+/* Borders on the cells rather than a 1px grid gap. With the gap technique an
+   unfilled track at the end of the last row showed the grid's own background
+   and read as a hole punched in the band; this way an empty track is just
+   panel. */
+.rail {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(122px, 1fr));
+  background: var(--color-ink-100);
+  border-top: 1px solid var(--color-ink-200);
+}
+
+.rail-cell {
+  padding: 11px 13px;
+  min-width: 0;
+  border-right: 1px solid var(--color-ink-200);
+  border-bottom: 1px solid var(--color-ink-200);
+}
+
+.rail-key {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-type-lo);
+  margin-bottom: 5px;
+}
+
+.rail-val {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.rail-val > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rail-val::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  flex: none;
+  background: currentColor;
+}
+.rail-muted::before { background: transparent; box-shadow: inset 0 0 0 1px currentColor; }
+
+/* --- section headings --------------------------------------------------- */
+
+/* A section title is a title, not another shouting label. Rank comes from
+   weight and a rule, not from capitals. */
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--color-ink-200);
+  margin-bottom: 2px;
+}
+
+.section-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  color: var(--color-type-hi);
+}
+
+.section-count {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--color-type-lo);
+}
+
+/* --- attention list ----------------------------------------------------- */
+
+/* Each item carries a left edge in its own severity colour, so the list is
+   scannable by shape before any word is read. */
+.attn {
+  display: block;
+  padding: 11px 13px 11px 12px;
+  border-left: 2px solid var(--color-ink-400);
+  background: var(--color-ink-100);
+  transition: background 120ms, border-color 120ms;
+}
+.attn:hover { background: var(--color-ink-150); }
+.attn-problem { border-left-color: var(--color-signal-red); }
+.attn-waiting { border-left-color: var(--color-signal-amber); }
+.attn-ready   { border-left-color: var(--color-signal-blue); }
+
+.attn-title {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--color-type-hi);
+  line-height: 1.35;
+}
+.attn-note {
+  font-size: 12px;
+  color: var(--color-type-lo);
+  line-height: 1.45;
+  margin-top: 3px;
+}
+
+/* --- masthead ----------------------------------------------------------- */
+
+.wordmark {
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--color-type-hi);
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+}
+.wordmark::before {
+  content: "";
+  width: 3px;
+  height: 17px;
+  background: var(--color-brand-red);
+  flex: none;
+}
