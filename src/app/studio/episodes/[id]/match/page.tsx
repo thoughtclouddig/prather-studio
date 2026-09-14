@@ -73,7 +73,22 @@ export default async function MatchPage({
         </div>
       ) : null}
 
-      {result?.ambiguous && (
+      {result && result.duplicates.length > 0 && (
+        <div className="panel px-4 py-3 border-l-2 border-l-[var(--color-signal-amber)]">
+          <p className="text-[13px] leading-relaxed">
+            <strong className="text-[var(--color-signal-amber)]">
+              This channel has the same broadcast uploaded more than once.
+            </strong>{" "}
+            {result.duplicates
+              .map((g) => g.map((c) => c.video.id).join(" and "))
+              .join("; ")}{" "}
+            went live at the same moment with the same title. The copy with the audience is
+            marked below — updating the other one leaves the real video with its old title.
+          </p>
+        </div>
+      )}
+
+      {result?.ambiguous && result.duplicates.length === 0 && (
         <div className="panel px-4 py-3 border-l-2 border-l-[var(--color-signal-amber)]">
           <p className="text-[13px]">
             <strong className="text-[var(--color-signal-amber)]">Ambiguous.</strong> The top two
@@ -111,14 +126,26 @@ export default async function MatchPage({
                     {candidate.video.live?.actualEndTime && (
                       <span className="tag">Livestream</span>
                     )}
+                    {candidate.duplicateOf && candidate.duplicateOf.length > 0 && (
+                      <span className="tag tag-sim">
+                        Duplicate of {candidate.duplicateOf.join(", ")}
+                      </span>
+                    )}
+                    {candidate.isMostWatchedCopy && (
+                      <span className="state state-done">Most watched copy</span>
+                    )}
                   </div>
                   <div className="text-[14px] font-semibold leading-snug">
                     {candidate.video.title}
                   </div>
                   <div className="mono mt-1">
-                    {candidate.video.id} · published {relative(new Date(candidate.video.publishedAt))}
+                    {candidate.video.id} · published{" "}
+                    {relative(new Date(candidate.video.publishedAt))}
                     {candidate.video.durationSeconds
                       ? ` · ${Math.round(candidate.video.durationSeconds / 60)} min`
+                      : ""}
+                    {candidate.video.viewCount !== null
+                      ? ` · ${candidate.video.viewCount.toLocaleString()} views`
                       : ""}
                   </div>
                   <ul className="mt-1.5 space-y-0.5">

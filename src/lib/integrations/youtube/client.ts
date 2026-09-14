@@ -147,6 +147,9 @@ export interface YouTubeVideo {
   defaultLanguage: string | null;
   defaultAudioLanguage: string | null;
   liveBroadcastContent: string | null;
+  /** Decides which copy of a duplicated broadcast the audience actually uses. */
+  viewCount: number | null;
+  likeCount: number | null;
   /** Present only on livestreams — this is how we learn the real lifecycle. */
   live: {
     scheduledStartTime?: string;
@@ -249,6 +252,7 @@ export async function getVideos(ids: string[]): Promise<YouTubeVideo[]> {
       };
       contentDetails?: { duration?: string };
       status?: { privacyStatus?: string };
+      statistics?: { viewCount?: string; likeCount?: string };
       liveStreamingDetails?: {
         scheduledStartTime?: string;
         actualStartTime?: string;
@@ -258,7 +262,7 @@ export async function getVideos(ids: string[]): Promise<YouTubeVideo[]> {
     }>;
   }>("videos", {
     query: {
-      part: "snippet,contentDetails,status,liveStreamingDetails",
+      part: "snippet,contentDetails,status,statistics,liveStreamingDetails",
       id: ids.join(","),
       maxResults: "50",
     },
@@ -282,6 +286,8 @@ export async function getVideos(ids: string[]): Promise<YouTubeVideo[]> {
       defaultLanguage: v.snippet.defaultLanguage ?? null,
       defaultAudioLanguage: v.snippet.defaultAudioLanguage ?? null,
       liveBroadcastContent: v.snippet.liveBroadcastContent ?? null,
+      viewCount: v.statistics?.viewCount ? Number(v.statistics.viewCount) : null,
+      likeCount: v.statistics?.likeCount ? Number(v.statistics.likeCount) : null,
       live: v.liveStreamingDetails
         ? {
             scheduledStartTime: v.liveStreamingDetails.scheduledStartTime,

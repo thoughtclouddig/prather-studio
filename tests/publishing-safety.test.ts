@@ -52,7 +52,7 @@ beforeEach(async () => {
     publishedAt: "2026-09-08T18:00:00Z", thumbnailUrl: null, durationIso: null,
     durationSeconds: 3600, privacyStatus: "public", categoryId: "25",
     tags: ["prather", "intel"], defaultLanguage: "en", defaultAudioLanguage: "en",
-    liveBroadcastContent: "none", live: null,
+    liveBroadcastContent: "none", viewCount: 1200, likeCount: 12, live: null,
   };
   owner = await makeUser("OWNER");
   const show = await makeShow();

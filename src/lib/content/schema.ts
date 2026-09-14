@@ -1,14 +1,21 @@
 /**
  * The contract for `episode.package`.
  *
- * This is a strict JSON Schema handed to the model via `output_config.format`,
- * so the shape is enforced at the API boundary rather than hoped for. Two
- * editorial decisions are encoded as *constraints* rather than as requests in
- * the prompt, because a constraint cannot be talked out of:
+ * A JSON Schema handed to the model via `output_config.format`. It guarantees
+ * the SHAPE — every field present, correct types, no extra properties.
  *
- *   · `clip_candidates` is capped at 5. "Fewer, better clips" is the whole
- *     philosophy; a schema cap is what makes it true.
- *   · `alternate_headlines` is capped at 5, so review stays a two-minute pass.
+ * It does NOT constrain array lengths. Structured outputs reject both
+ * `minItems` above 1 and `maxItems` outright ("For 'array' type, property
+ * 'maxItems' is not supported"), so every count bound lives in two places
+ * instead:
+ *
+ *   · the prompt, which asks for the right number, and
+ *   · `validatePackage`, which REJECTS the whole package if the model returns
+ *     the wrong number — nothing is written to the database on a violation.
+ *
+ * So "never more than 5 clips" is still enforced rather than merely requested;
+ * the enforcement point is validation, not the API boundary. Keep the two in
+ * sync: relaxing the prompt without the validator silently drops the floor.
  */
 export const EPISODE_PACKAGE_SCHEMA = {
   type: "object",
@@ -37,10 +44,9 @@ export const EPISODE_PACKAGE_SCHEMA = {
     },
     alternate_headlines: {
       type: "array",
-      minItems: 3,
-      maxItems: 5,
       items: { type: "string" },
-      description: "Genuinely different angles, not rewordings of the primary.",
+      description:
+        "Exactly 3 to 5. Genuinely different angles, not rewordings of the primary.",
     },
     summary_short: {
       type: "string",
@@ -61,8 +67,6 @@ export const EPISODE_PACKAGE_SCHEMA = {
     },
     chapters: {
       type: "array",
-      minItems: 3,
-      maxItems: 15,
       items: {
         type: "object",
         additionalProperties: false,
@@ -72,27 +76,24 @@ export const EPISODE_PACKAGE_SCHEMA = {
           title: { type: "string", description: "Short enough to scan. Aim under 55 characters." },
         },
       },
-      description: "First chapter MUST start at 0. Strictly increasing.",
+      description:
+        "Between 3 and 15. First chapter MUST start at 0. Strictly increasing, at least 10s apart.",
     },
-    topics: { type: "array", maxItems: 12, items: { type: "string" } },
+    topics: { type: "array", items: { type: "string" } },
     people: {
       type: "array",
-      maxItems: 15,
       items: { type: "string" },
       description: "Only people actually named in the recording.",
     },
-    organizations: { type: "array", maxItems: 15, items: { type: "string" } },
-    places: { type: "array", maxItems: 15, items: { type: "string" } },
+    organizations: { type: "array", items: { type: "string" } },
+    places: { type: "array", items: { type: "string" } },
     search_terms: {
       type: "array",
-      maxItems: 15,
       items: { type: "string" },
       description: "Phrases a viewer would plausibly search for.",
     },
     clip_candidates: {
       type: "array",
-      minItems: 3,
-      maxItems: 5,
       items: {
         type: "object",
         additionalProperties: false,
@@ -111,12 +112,11 @@ export const EPISODE_PACKAGE_SCHEMA = {
           },
         },
       },
-      description: "Between 3 and 5. Never more. 30–90 seconds each.",
+      description:
+        "Exactly 3 to 5 — never more. 30-90 seconds each. Returning more than 5 fails validation and the whole package is discarded.",
     },
     follow_up_topics: {
       type: "array",
-      minItems: 2,
-      maxItems: 5,
       items: { type: "string" },
     },
   },

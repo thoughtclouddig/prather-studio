@@ -3,7 +3,11 @@ import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { episodePublications, type User } from "@/db/schema";
 import { extractVideoId } from "@/lib/integrations/youtube/video-id";
-import { rankCandidates, titleSimilarity } from "@/lib/integrations/youtube/matching";
+import {
+  normalizeTitle,
+  rankCandidates,
+  titleSimilarity,
+} from "@/lib/integrations/youtube/matching";
 import type { YouTubeVideo } from "@/lib/integrations/youtube/client";
 import { makeEpisode, makePublication, makeShow, makeUser, resetDb } from "./helpers";
 
@@ -89,6 +93,69 @@ describe("candidate ranking", () => {
       video("bbbbbbbbbbb", "The Prather Point Part Two", "2026-09-08T19:30:00Z"),
     ]);
     expect(ambiguous).toBe(true);
+  });
+
+  /**
+   * A low-confidence near-tie is the case that most needs a human. An earlier
+   * version suppressed the warning precisely when confidence was weak.
+   */
+  it("flags a near-tie even when both candidates score weakly", () => {
+    const { ambiguous, best } = rankCandidates(target, [
+      video("aaaaaaaaaaa", "Something unrelated", "2025-01-01T00:00:00Z"),
+      video("bbbbbbbbbbb", "Something else entirely", "2025-01-02T00:00:00Z"),
+    ]);
+    expect(best?.confidence).toBe("weak");
+    expect(ambiguous).toBe(true);
+  });
+
+  /**
+   * Real JP Intel data: the 9 Sep show exists twice, one second apart, same
+   * title and duration. Linking the wrong copy updates a video nobody watches.
+   */
+  /**
+   * Exact values from the live channel. The pair differs by a trailing emoji
+   * in the title and by one second of duration, which is why matching on the
+   * broadcast window beats matching on title or runtime equality.
+   */
+  it("groups the same broadcast uploaded twice", () => {
+    const { duplicates, ambiguous, candidates } = rankCandidates(target, [
+      video(
+        "cqbI52zgl7o",
+        "Ukraine\'s Reverse  9-11:  Not Intel Agencies Running Ops But  Targeting Each Other! \u{1F4F1}",
+        "2026-09-09T07:42:07Z",
+        { actualStartTime: "2026-09-08T18:00:08Z", actualEndTime: "2026-09-08T19:24:57Z" },
+      ),
+      video(
+        "NNR4wUsprmo",
+        "Ukraine\'s Reverse  9-11:  Not Intel Agencies Running Ops But  Targeting Each Other!",
+        "2026-09-09T07:36:28Z",
+        { actualStartTime: "2026-09-08T18:00:07Z", actualEndTime: "2026-09-08T19:24:57Z" },
+      ),
+    ]);
+    expect(duplicates).toHaveLength(1);
+    expect(duplicates[0]).toHaveLength(2);
+    expect(ambiguous).toBe(true);
+    expect(candidates[0]!.duplicateOf).toContain(
+      candidates[0]!.video.id === "cqbI52zgl7o" ? "NNR4wUsprmo" : "cqbI52zgl7o",
+    );
+  });
+
+  /** The real pair differed only by a trailing emoji and doubled spaces. */
+  it("normalizes emoji and spacing so near-identical titles compare equal", () => {
+    expect(normalizeTitle("Ukraine\'s Reverse  9-11! \u{1F4F1}")).toBe(
+      normalizeTitle("Ukraine\'s Reverse 9-11!"),
+    );
+    expect(normalizeTitle("A totally different show")).not.toBe(
+      normalizeTitle("Ukraine\'s Reverse 9-11!"),
+    );
+  });
+
+  it("does not treat two different shows as duplicates", () => {
+    const { duplicates } = rankCandidates(target, [
+      video("aaaaaaaaaaa", "Show A", "2026-09-08T18:00:00Z", { actualStartTime: "2026-09-08T18:00:00Z" }),
+      video("bbbbbbbbbbb", "Show B", "2026-09-10T18:00:00Z", { actualStartTime: "2026-09-10T18:00:00Z" }),
+    ]);
+    expect(duplicates).toHaveLength(0);
   });
 
   it("does not call an unrelated video a match", () => {
