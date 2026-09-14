@@ -6,7 +6,14 @@ import { SCOPE_RATIONALE, YOUTUBE_SCOPES } from "@/lib/integrations/youtube/scop
 import type { IntegrationProvider } from "@/db/schema";
 import { relative, stamp } from "@/lib/format";
 import { Panel, StateBadge } from "@/components/ui";
-import { ConnectRumbleForm, DisconnectButton, HealthCheckButton, PollRumbleButton } from "./parts";
+import {
+  ConnectBuzzsproutForm,
+  ConnectRumbleForm,
+  DisconnectButton,
+  HealthCheckButton,
+  PollRumbleButton,
+  SyncBuzzsproutButton,
+} from "./parts";
 
 export const dynamic = "force-dynamic";
 
@@ -87,6 +94,7 @@ export default async function IntegrationsPage({
   const byProvider = new Map(integrations.map((i) => [i.provider, i]));
   const youtube = byProvider.get("YOUTUBE" as IntegrationProvider);
   const rumble = byProvider.get("RUMBLE" as IntegrationProvider);
+  const buzzsprout = byProvider.get("BUZZSPROUT" as IntegrationProvider);
   const canConfigure = can(user.role, "integration.configure");
 
   const rumbleObservation = rumble?.lastObservation as
@@ -288,6 +296,74 @@ export default async function IntegrationsPage({
             </>
           ) : canConfigure ? (
             <ConnectRumbleForm />
+          ) : (
+            <p className="text-[11px] text-[var(--color-type-lo)]">
+              Only an OWNER can connect integrations.
+            </p>
+          )}
+        </div>
+      </Panel>
+
+      {/* ---------------------------------------------------- BUZZSPROUT */}
+      <Panel
+        eyebrow="Buzzsprout"
+        title="The podcast — read first, write only what a human approved"
+        actions={
+          <div className="flex items-center gap-2">
+            {buzzsprout && canConfigure && <SyncBuzzsproutButton />}
+            <StateBadge
+              tone={HEALTH_TONE[buzzsprout?.health ?? "DISCONNECTED"]}
+              label={buzzsprout?.health ?? "Not connected"}
+            />
+          </div>
+        }
+      >
+        <div className="p-4 space-y-4">
+          <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed">
+            Buzzsprout documents GET, POST and PUT for episodes — there is{" "}
+            <strong className="text-[var(--color-type-mid)]">no DELETE and no PATCH</strong>, so
+            anything created here cannot be cleanly removed. The Studio reads before it writes,
+            merges onto the current remote state rather than assuming which fields survive an
+            update, and never creates an episode without real audio.
+          </p>
+
+          {buzzsprout ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-4">
+                <div>
+                  <div className="eyebrow mb-1">Podcast</div>
+                  <div className="text-[13px] font-semibold">
+                    {buzzsprout.accountLabel ?? "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Podcast ID</div>
+                  <div className="mono">{buzzsprout.accountExternalId ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Last sync</div>
+                  <div className="mono">
+                    {buzzsprout.lastSuccessAt ? relative(buzzsprout.lastSuccessAt) : "never"}
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Episodes seen</div>
+                  <div className="mono">
+                    {(buzzsprout.lastObservation as { episodeCount?: number } | null)
+                      ?.episodeCount ?? "—"}
+                  </div>
+                </div>
+              </div>
+
+              {buzzsprout.lastError && (
+                <p className="text-[12px] text-[var(--color-signal-red)]">
+                  {buzzsprout.lastError}
+                </p>
+              )}
+              {canConfigure && <DisconnectButton provider="BUZZSPROUT" />}
+            </>
+          ) : canConfigure ? (
+            <ConnectBuzzsproutForm />
           ) : (
             <p className="text-[11px] text-[var(--color-type-lo)]">
               Only an OWNER can connect integrations.

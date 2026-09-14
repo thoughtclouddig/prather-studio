@@ -11,6 +11,7 @@ import {
 } from "@/lib/domain/linkage";
 import { applyYouTubeUpdate } from "@/lib/domain/youtube-publish";
 import { disconnect, saveCredential } from "@/lib/integrations/credentials";
+import { verifyToken } from "@/lib/integrations/buzzsprout/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
 import { listRecentVideos } from "@/lib/integrations/youtube/client";
 import { enqueue } from "@/lib/queue/queue";
@@ -261,4 +262,80 @@ export async function pollRumbleNowAction(
     });
     return "Rumble poll queued.";
   }, ["/studio/integrations", "/studio/jobs", "/studio"]);
+}
+
+/* --------------------------------------------------------------- Buzzsprout */
+
+/**
+ * Connect Buzzsprout.
+ *
+ * The token is verified before it is stored — `GET /api/podcasts.json` is the
+ * one call that needs no podcast id, so it proves the credential and discovers
+ * what it points at in a single request. A token that cannot reach a podcast
+ * is not saved.
+ *
+ * The token never leaves the server, is never rendered back, and is stored
+ * AES-256-GCM encrypted like every other provider credential.
+ */
+export async function connectBuzzsproutAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const apiToken = String(formData.get("apiToken") ?? "").trim();
+  const requestedPodcastId = String(formData.get("podcastId") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!apiToken) throw new Error("Paste the Buzzsprout API token.");
+
+    const { podcasts } = await verifyToken(apiToken);
+    if (podcasts.length === 0) {
+      throw new Error(
+        "That token is valid but reaches no podcasts. Check it was copied from the " +
+          "right Buzzsprout account.",
+      );
+    }
+
+    const chosen = requestedPodcastId
+      ? podcasts.find((p) => String(p.id) === requestedPodcastId)
+      : podcasts.length === 1
+        ? podcasts[0]
+        : podcasts.find((p) => String(p.id) === "1762960");
+
+    if (!chosen) {
+      throw new Error(
+        `This token reaches ${podcasts.length} podcasts (` +
+          podcasts.map((p) => `${p.id} ${p.title}`).join(", ") +
+          "). Enter the podcast ID to say which one.",
+      );
+    }
+
+    await saveCredential({
+      provider: "BUZZSPROUT",
+      kind: "API_KEY",
+      payload: { apiToken, podcastId: String(chosen.id) },
+      accountLabel: chosen.title,
+      accountExternalId: String(chosen.id),
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return `Connected to "${chosen.title}" (podcast ${chosen.id}).`;
+  }, ["/studio/integrations", "/studio"]);
+}
+
+/** Read recent Buzzsprout episodes. Read-only: nothing is created or changed. */
+export async function syncBuzzsproutAction(
+  _prev?: ActionState,
+): Promise<ActionState> {
+  return guarded(async () => {
+    await requirePermission("integration.configure");
+    const { enqueue } = await import("@/lib/queue/queue");
+    await enqueue({
+      kind: "buzzsprout.sync_recent",
+      idempotencyKey: `buzzsprout.sync_recent:${Date.now()}`,
+      maxAttempts: 2,
+    });
+    return "Reading recent episodes from Buzzsprout.";
+  }, ["/studio/integrations"]);
 }

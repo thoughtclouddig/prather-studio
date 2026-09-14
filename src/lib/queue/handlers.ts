@@ -45,6 +45,10 @@ import {
   recordBroadcastObservation,
 } from "@/lib/domain/observations";
 import { PROMPT_VERSION } from "@/lib/content/package";
+import {
+  BuzzsproutNotConnectedError,
+  listEpisodes as listBuzzsproutEpisodes,
+} from "@/lib/integrations/buzzsprout/client";
 import { JobDeferred } from "./queue";
 import { diagnosticsEnabled, isDiagnosticJob } from "@/lib/diagnostics";
 import { fetchCaptionsForEpisode } from "@/lib/domain/transcripts";
@@ -399,6 +403,49 @@ const pollRumble: Handler = async (_job, ctx) => {
 };
 
 /**
+ * Read recent Buzzsprout episodes.
+ *
+ * READ ONLY. It creates nothing and changes nothing — it records what is
+ * actually on the podcast so the operator can see it and so matching has real
+ * data to work against. Phase 3 reads Buzzsprout well before it writes to it.
+ */
+const syncBuzzsproutRecent: Handler = async () => {
+  let episodesSeen;
+  try {
+    episodesSeen = await listBuzzsproutEpisodes(25);
+  } catch (error) {
+    if (error instanceof BuzzsproutNotConnectedError) {
+      return { skipped: true, reason: "Buzzsprout is not connected" };
+    }
+    await markHealth(
+      "BUZZSPROUT",
+      "ATTENTION",
+      error instanceof Error ? error.message : String(error),
+    );
+    throw error;
+  }
+
+  await recordObservation("BUZZSPROUT", {
+    episodeCount: episodesSeen.length,
+    latest: episodesSeen[0]
+      ? {
+          id: episodesSeen[0].id,
+          title: episodesSeen[0].title,
+          publishedAt: episodesSeen[0].publishedAt,
+          durationSeconds: episodesSeen[0].durationSeconds,
+          totalPlays: episodesSeen[0].totalPlays,
+        }
+      : null,
+  });
+
+  return {
+    episodes: episodesSeen.length,
+    latestTitle: episodesSeen[0]?.title ?? null,
+    latestPublishedAt: episodesSeen[0]?.publishedAt ?? null,
+  };
+};
+
+/**
  * Prove each connection still works, and refresh tokens before they expire
  * rather than after — a broken connection should surface on the Integrations
  * page, not in the middle of a publish.
@@ -453,6 +500,7 @@ export const HANDLERS: Record<string, Handler> = {
   "episode.package": packageEpisodeHandler,
   "rumble.poll_live": pollRumble,
   "youtube.poll_broadcast": pollYouTubeBroadcast,
+  "buzzsprout.sync_recent": syncBuzzsproutRecent,
   "integration.health_check": integrationHealthCheck,
 };
 

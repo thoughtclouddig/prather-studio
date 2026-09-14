@@ -145,6 +145,21 @@ export const broadcastSignal = pgEnum("broadcast_signal", [
   "COMPLETED",
 ]);
 
+/**
+ * Where an episode's pre-stream (placeholder) video stands.
+ *
+ * Rumble plays a looping placeholder to the audience between the stream being
+ * created and the encoder feed arriving. Jeffrey chooses which one runs. There
+ * is no API for it — see `docs/PHASE-3-INVESTIGATION.md` §5 — so the Studio
+ * tracks the decision and tells the operator to make it real in Rumble Studio.
+ */
+export const preStreamState = pgEnum("pre_stream_state", [
+  "NOT_SELECTED",
+  "SELECTED",
+  "CONFIRMED_IN_RUMBLE",
+  "NOT_APPLICABLE",
+]);
+
 /** Recurring, operator-authored description content. Never written by the AI. */
 export const standingBlockKind = pgEnum("standing_block_kind", [
   "CTA",
@@ -274,6 +289,20 @@ export const episodes = pgTable(
     /** Readiness facets the dashboard reports on. Not a status field. */
     showPrepState: readiness("show_prep_state").notNull().default("PENDING"),
     artworkState: readiness("artwork_state").notNull().default("MISSING"),
+    /**
+     * Which pre-stream video Jeffrey wants in front of this show, and whether
+     * it has actually been set up in Rumble Studio. Two columns because
+     * choosing and doing are different facts: the Studio knows the first for
+     * certain and can only be told the second.
+     */
+    preStreamAssetId: uuid("pre_stream_asset_id").references(
+      () => preStreamAssets.id,
+      { onDelete: "set null" },
+    ),
+    preStreamState: preStreamState("pre_stream_state")
+      .notNull()
+      .default("NOT_SELECTED"),
+    preStreamConfirmedAt: timestamp("pre_stream_confirmed_at", { withTimezone: true }),
     internalNotes: text("internal_notes"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -574,6 +603,44 @@ export const broadcastObservations = pgTable(
   ],
 );
 
+/* -------------------------------------------------------- pre-stream assets */
+
+/**
+ * Reusable pre-stream (placeholder) videos.
+ *
+ * Rumble's livestream setup takes a placeholder clip of up to 60 seconds that
+ * loops until the encoder feed arrives. It is uploaded per stream, so the same
+ * file gets used many times — which is exactly why it belongs in its own table
+ * rather than as a column on an episode. Jeffrey picks from a small standing
+ * set; the episode records WHICH one.
+ *
+ * NO BINARIES. `sourceUrl` points at wherever the file actually lives (Drive,
+ * Dropbox, object storage). Postgres is not a video store, and the operator
+ * needs a link they can open and re-upload from, not bytes in a row.
+ */
+export const preStreamAssets = pgTable(
+  "pre_stream_assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    showId: uuid("show_id")
+      .notNull()
+      .references(() => shows.id, { onDelete: "cascade" }),
+    label: text("label").notNull(),
+    description: text("description"),
+    /** Where the operator can fetch the file to upload it. Never a binary. */
+    sourceUrl: text("source_url"),
+    /** Rumble caps the placeholder at 60 s; recorded so we can warn, not block. */
+    durationSeconds: integer("duration_seconds"),
+    /** Retired clips stay for history but stop being offered. */
+    active: boolean("active").notNull().default(true),
+    notes: text("notes"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("pre_stream_assets_show_idx").on(t.showId, t.sortOrder)],
+);
+
 /* ---------------------------------------------------------- standing blocks */
 
 /**
@@ -751,7 +818,9 @@ export type IntegrationHealth = (typeof integrationHealth.enumValues)[number];
 export type TranscriptSource = (typeof transcriptSource.enumValues)[number];
 export type BroadcastObservation = typeof broadcastObservations.$inferSelect;
 export type StandingBlock = typeof standingBlocks.$inferSelect;
+export type PreStreamAsset = typeof preStreamAssets.$inferSelect;
 export type WorkerHeartbeat = typeof workerHeartbeats.$inferSelect;
 
 export type BroadcastSignal = (typeof broadcastSignal.enumValues)[number];
 export type StandingBlockKind = (typeof standingBlockKind.enumValues)[number];
+export type PreStreamState = (typeof preStreamState.enumValues)[number];

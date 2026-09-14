@@ -3,9 +3,11 @@
 import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
+  connectBuzzsproutAction,
   connectRumbleAction,
   disconnectIntegrationAction,
   pollRumbleNowAction,
+  syncBuzzsproutAction,
   testIntegrationsAction,
 } from "@/app/studio/phase2-actions";
 
@@ -98,6 +100,64 @@ export function ConnectRumbleForm() {
         contains your key, so it is stored encrypted and never displayed again.
       </p>
       <Submit className="btn btn-xs btn-primary">Test &amp; connect</Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+/**
+ * The Buzzsprout API token.
+ *
+ * A password field that is never rendered back, submitted to a server action
+ * that verifies the token against Buzzsprout before storing it encrypted. The
+ * value never reaches a client bundle, a log line or a URL.
+ */
+export function ConnectBuzzsproutForm() {
+  const [state, action] = useActionState(connectBuzzsproutAction, undefined);
+  return (
+    <form action={action} className="space-y-2">
+      <label className="block">
+        <span className="eyebrow block mb-1.5">API token</span>
+        <input
+          name="apiToken"
+          type="password"
+          required
+          autoComplete="off"
+          placeholder="Paste the Buzzsprout API token"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">
+          Podcast ID <span className="normal-case tracking-normal">(optional)</span>
+        </span>
+        <input
+          name="podcastId"
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          placeholder="1762960"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        Buzzsprout dashboard &rarr; <span className="mono">Settings &rarr; API</span>. The token
+        is verified against your account before it is saved, then stored encrypted and never
+        displayed again. Leave the podcast ID blank and the Studio will use the one the token
+        reaches.
+      </p>
+      <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+/** Read recent episodes. Read-only — nothing is created or modified. */
+export function SyncBuzzsproutButton() {
+  const [state, action] = useActionState(syncBuzzsproutAction, undefined);
+  return (
+    <form action={action} className="inline-flex items-center gap-2">
+      <Submit className="btn btn-xs">Read recent episodes</Submit>
       <Feedback state={state} />
     </form>
   );
