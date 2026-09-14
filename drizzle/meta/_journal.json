@@ -50,6 +50,13 @@
       "when": 1789404374751,
       "tag": "0006_last_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789420870044,
+      "tag": "0007_complex_magdalene",
+      "breakpoints": true
     }
   ]
 }

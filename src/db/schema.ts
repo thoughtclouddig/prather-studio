@@ -681,6 +681,64 @@ export const standingBlocks = pgTable(
   (t) => [index("standing_blocks_show_idx").on(t.showId, t.sortOrder)],
 );
 
+/* -------------------------------------------------------- metric snapshots */
+
+/**
+ * Point-in-time provider counters, captured so growth can be measured later.
+ *
+ * This table exists because of an asymmetry found by measurement, not assumed:
+ *
+ *   YouTube Analytics BACKFILLS. Asking for a daily series returns history on
+ *   demand — three months came back on the first request. Nothing needs to be
+ *   captured for it, and duplicating it here would create a second, worse copy
+ *   of a series the provider already keeps.
+ *
+ *   Rumble and Buzzsprout do NOT. Rumble's Live Stream API reports the follower
+ *   count RIGHT NOW. Buzzsprout reports `total_plays` RIGHT NOW. Neither offers
+ *   a time series and neither can be asked about last Tuesday. Every day that
+ *   passes without a snapshot is a day of growth history that cannot be
+ *   recovered at any later date.
+ *
+ * So this captures only what is otherwise lost. It is deliberately not a
+ * warehouse: one row per provider per subject per day, counters only, no
+ * derived metrics. Anything computable from the rows is computed at read time
+ * rather than stored, so a corrected calculation does not need a migration.
+ */
+export const metricSubject = pgEnum("metric_subject", [
+  "CHANNEL",
+  "EPISODE",
+  "PODCAST",
+]);
+
+export const metricSnapshots = pgTable(
+  "metric_snapshots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    provider: integrationProvider("provider").notNull(),
+    subject: metricSubject("subject").notNull(),
+    /** The provider's id for the thing counted — a video id, a podcast id. */
+    externalId: text("external_id"),
+    /** Set when the counter belongs to one of our canonical episodes. */
+    episodeId: uuid("episode_id").references(() => episodes.id, {
+      onDelete: "cascade",
+    }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }).notNull(),
+    /**
+     * Raw counters exactly as the provider reported them. Never a rate, never
+     * a delta — those are a reading of the data, and readings change.
+     */
+    counters: jsonb("counters").notNull(),
+    /** provider:subject:externalId:YYYY-MM-DD — one capture per day. */
+    dedupeKey: text("dedupe_key").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("metric_snapshots_dedupe_unique").on(t.dedupeKey),
+    index("metric_snapshots_lookup_idx").on(t.provider, t.subject, t.capturedAt),
+    index("metric_snapshots_episode_idx").on(t.episodeId, t.capturedAt),
+  ],
+);
+
 /* -------------------------------------------------------- worker heartbeats */
 
 /**
@@ -820,7 +878,9 @@ export type BroadcastObservation = typeof broadcastObservations.$inferSelect;
 export type StandingBlock = typeof standingBlocks.$inferSelect;
 export type PreStreamAsset = typeof preStreamAssets.$inferSelect;
 export type WorkerHeartbeat = typeof workerHeartbeats.$inferSelect;
+export type MetricSnapshot = typeof metricSnapshots.$inferSelect;
 
 export type BroadcastSignal = (typeof broadcastSignal.enumValues)[number];
 export type StandingBlockKind = (typeof standingBlockKind.enumValues)[number];
 export type PreStreamState = (typeof preStreamState.enumValues)[number];
+export type MetricSubject = (typeof metricSubject.enumValues)[number];

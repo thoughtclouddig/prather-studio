@@ -23,7 +23,8 @@
     "db:seed:dev": "tsx --tsconfig worker/tsconfig.json src/db/seed.ts",
     "db:reset:dev": "tsx --tsconfig worker/tsconfig.json src/db/reset.ts",
     "db:seed": "npm run db:seed:dev",
-    "db:reset": "npm run db:reset:dev"
+    "db:reset": "npm run db:reset:dev",
+    "job:metrics-snapshot": "node scripts/enqueue-job.mjs metrics.snapshot"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

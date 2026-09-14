@@ -40,6 +40,7 @@ import { decidePoll, readLiveDetails } from "@/lib/domain/broadcast-poll";
 import { evaluateBroadcast } from "@/lib/domain/broadcast";
 import { isAwaitingCaptions, nextCaptionCheck } from "@/lib/domain/captions-wait";
 import { markDraftsStaleForTranscript } from "@/lib/domain/drafts";
+import { capture } from "@/lib/domain/metrics";
 import {
   observationsForEpisode,
   recordBroadcastObservation,
@@ -446,6 +447,92 @@ const syncBuzzsproutRecent: Handler = async () => {
 };
 
 /**
+ * Capture the counters that providers do not keep.
+ *
+ * Rumble and Buzzsprout only, on purpose. YouTube Analytics backfills a daily
+ * series on request, so snapshotting it here would build a second and worse
+ * copy of a history the provider already has. Rumble and Buzzsprout expose
+ * only "right now" — every unsnapshotted day is permanently lost, which is the
+ * whole reason this job exists.
+ *
+ * A provider that is not connected is skipped, not failed. Half a record is
+ * better than none, and a red job every day for an integration nobody has set
+ * up yet is how the Jobs page stops being read.
+ */
+const snapshotMetrics: Handler = async () => {
+  const capturedAt = new Date();
+  const result: Record<string, unknown> = { capturedAt: capturedAt.toISOString() };
+
+  // ---- Rumble: followers and subscribers, channel level ------------------
+  try {
+    const observation = await observe();
+    const { created } = await capture({
+      provider: "RUMBLE",
+      subject: "CHANNEL",
+      capturedAt,
+      counters: {
+        followers: observation.followers,
+        followersTotal: observation.followersTotal,
+        subscribers: observation.subscribers,
+      },
+    });
+    result["rumble"] = {
+      captured: created,
+      followersTotal: observation.followersTotal,
+    };
+  } catch (error) {
+    result["rumble"] =
+      error instanceof RumbleNotConnectedError
+        ? { skipped: "not connected" }
+        : { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  // ---- Buzzsprout: total_plays per episode -------------------------------
+  try {
+    const episodesSeen = await listBuzzsproutEpisodes(50);
+    let captured = 0;
+    let totalPlays = 0;
+
+    for (const episode of episodesSeen) {
+      totalPlays += episode.totalPlays ?? 0;
+      const { created } = await capture({
+        provider: "BUZZSPROUT",
+        subject: "EPISODE",
+        externalId: String(episode.id),
+        capturedAt,
+        counters: {
+          totalPlays: episode.totalPlays,
+          durationSeconds: episode.durationSeconds,
+        },
+      });
+      if (created) captured++;
+    }
+
+    // Podcast-level total as well: an episode row can disappear from the feed,
+    // and the series should survive that.
+    await capture({
+      provider: "BUZZSPROUT",
+      subject: "PODCAST",
+      capturedAt,
+      counters: { episodeCount: episodesSeen.length, totalPlays },
+    });
+
+    result["buzzsprout"] = {
+      episodes: episodesSeen.length,
+      captured,
+      totalPlays,
+    };
+  } catch (error) {
+    result["buzzsprout"] =
+      error instanceof BuzzsproutNotConnectedError
+        ? { skipped: "not connected" }
+        : { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  return result;
+};
+
+/**
  * Prove each connection still works, and refresh tokens before they expire
  * rather than after — a broken connection should surface on the Integrations
  * page, not in the middle of a publish.
@@ -501,6 +588,7 @@ export const HANDLERS: Record<string, Handler> = {
   "rumble.poll_live": pollRumble,
   "youtube.poll_broadcast": pollYouTubeBroadcast,
   "buzzsprout.sync_recent": syncBuzzsproutRecent,
+  "metrics.snapshot": snapshotMetrics,
   "integration.health_check": integrationHealthCheck,
 };
 
