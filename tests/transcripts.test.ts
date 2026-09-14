@@ -141,4 +141,32 @@ describe("caption track selection", () => {
   it("ignores drafts", () => {
     expect(chooseTrack([track({ id: "draft", isDraft: true })])).toBeNull();
   });
+
+  /**
+   * Found on the live JP Intel channel: every livestream carries a second
+   * `standard` track with language "und" and status "failed". It downloads
+   * fine and yields a 37-byte header with no cues, so preferring human over
+   * ASR without a status check silently produced empty transcripts.
+   */
+  it("skips a failed track even though it is human-uploaded", () => {
+    const chosen = chooseTrack([
+      track({ id: "broken", trackKind: "standard", language: "und", status: "failed" }),
+      track({ id: "asr", trackKind: "asr", language: "en", status: "serving" }),
+    ]);
+    expect(chosen?.id).toBe("asr");
+  });
+
+  it("skips an undefined-language track", () => {
+    const chosen = chooseTrack([
+      track({ id: "und", trackKind: "standard", language: "und", status: "serving" }),
+      track({ id: "en", trackKind: "asr", language: "en", status: "serving" }),
+    ]);
+    expect(chosen?.id).toBe("en");
+  });
+
+  it("returns null when every track is unusable", () => {
+    expect(
+      chooseTrack([track({ id: "broken", language: "und", status: "failed" })]),
+    ).toBeNull();
+  });
 });

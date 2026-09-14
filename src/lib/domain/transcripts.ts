@@ -45,13 +45,33 @@ export class CaptionRetrievalError extends Error {
 }
 
 /**
- * Prefer a human-uploaded English track over the auto-generated one — same
- * timecodes, punctuated text, better packaging input. ASR is the normal case.
+ * Choose which caption track to download.
+ *
+ * Preferring a human-uploaded track over ASR is right in principle — same
+ * timecodes, punctuated text — but only among tracks that actually work.
+ *
+ * The JP Intel channel turns out to carry a second `standard` track on every
+ * livestream with `language: "und"` and `status: "failed"`. It downloads
+ * successfully and returns a 37-byte VTT header with no cues. Preferring
+ * "human over ASR" without checking status therefore picked the broken track
+ * on every single episode and produced an empty transcript, with no error
+ * anywhere to explain it. Status and language are filtered first for that
+ * reason.
  */
 export function chooseTrack(tracks: YouTubeCaptionTrack[]): YouTubeCaptionTrack | null {
-  const usable = tracks.filter((t) => !t.isDraft);
+  const usable = tracks.filter(
+    (t) =>
+      !t.isDraft &&
+      // "serving" is the only status that means the track has content.
+      t.status === "serving" &&
+      // "und" is YouTube's undefined-language placeholder.
+      t.language.toLowerCase() !== "und",
+  );
+  if (usable.length === 0) return null;
+
   const english = usable.filter((t) => t.language.toLowerCase().startsWith("en"));
   const pool = english.length > 0 ? english : usable;
+
   return (
     pool.find((t) => t.trackKind !== "asr") ?? pool.find((t) => t.trackKind === "asr") ?? null
   );
