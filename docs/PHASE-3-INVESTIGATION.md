@@ -288,3 +288,85 @@ no statistics to act on. The defensible design is: measure, attribute, surface
 to a human with the sample size stated, and never let the system change
 editorial direction on its own. That is the same rule as HUMAN APPROVAL, applied
 to strategy instead of copy.
+
+---
+
+## 6. Locals and merch — capability check
+
+Both asked for during Phase 3. Investigated rather than scoped, because in both
+cases the answer changes what should be built.
+
+### Locals: no documented API, and no feed
+
+Probed `jeffreyprather.locals.com` on 2026-09-14:
+
+| Path | Result |
+|---|---|
+| `/` | 200, SPA HTML shell |
+| `/feed` | 200, **the same SPA shell** — not a feed |
+| `/rss` | 200, the same SPA shell |
+| `/feed.rss` | 404 |
+| `/podcast` | **429** — rate limited; probing stopped |
+| `/api/v1/posts` | 200 `{"errors":[],"params":[],"status":0,"code":"NOT_FOUND"}` |
+
+Two things follow. There is **no RSS feed** — the paths that look like one
+return the app shell, so anything parsing them would be parsing JavaScript.
+And there is an **undocumented internal JSON API** behind `/api/v1/`, which the
+error shape gives away.
+
+Building on that internal API is the thing this project has repeatedly refused
+to do. It is unversioned, undocumented, can change without notice, and would
+fail silently — most likely on a show night, which is the only time it matters.
+It is also the definition of the "fake automation" prohibition: an integration
+that looks real until the week it isn't.
+
+Probing stopped at the 429. Hammering a rate limiter to map an endpoint nobody
+published is not research.
+
+**Phase 0's conclusion stands, now verified rather than assumed: Locals is a
+MANUAL adapter.** The Studio composes the exact post body from the approved
+editorial package plus the standing blocks, marks the publication
+`AWAITING_MANUAL`, and gives the operator a copy button and a "mark as posted,
+paste the URL" action. That is a real, tracked pipeline step — not a green tick
+for something nobody did.
+
+The open question from Phase 0 (#12, "is there a partner API?") is still worth
+one email to Locals support. It is a business question, not a technical one.
+
+### Printful: the right API for the wrong question
+
+Printful's API is real and well documented — bearer token, **120 calls/minute**,
+with Catalog, Products, Orders, File Library, Store, Shipping, Ecommerce
+Platform Sync, Webhooks and Reports.
+
+But three facts make it the wrong integration *here*:
+
+**1. Printful is already integrated — with WooCommerce.** The Phase 0 audit of
+the live site found `WooCommerce 7.9 + Printful + PayPal`, 78 products across 19
+categories. Fulfilment already works. A second Printful connection from the
+Studio would be a parallel path to a system that is not broken.
+
+**2. Printful has no sales or revenue endpoint.** Its Reports API exposes
+statistics, not money. Revenue lives in WooCommerce, which is the storefront and
+the system of record. Asking Printful "how is merch doing" asks the fulfiller,
+not the till.
+
+**3. The product catalogue is already public.** `jeffreyprather.com` serves the
+WooCommerce Store API unauthenticated:
+
+```
+GET /wp-json/wc/store/v1/products    200, full product JSON
+GET /wp-json/wp/v2/product           200, full product JSON
+```
+
+Names, permalinks, descriptions, images and prices, with **no credential
+required**. So putting a merch link in an episode description needs no new
+integration at all — and a standing block in Settings already covers it at zero
+integration cost, because merch links change rarely and a promo code typed once
+is safer than one synced every night.
+
+**Recommendation.** Do not connect Printful to the Episode Desk. If the goal is
+merch *revenue* alongside channel growth, the source is WooCommerce's
+authenticated reports endpoint (`/wp-json/wc/v3/reports/sales`), which needs a
+consumer key and belongs with the Phase 4 metrics work. If the goal is merch
+*promotion*, the standing-block model built in Phase 3 already does it.
