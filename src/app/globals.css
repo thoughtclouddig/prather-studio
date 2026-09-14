@@ -10,23 +10,32 @@
      · status is a swatch plus a word, never colour alone
    ========================================================================== */
 
+/* Every foreground below is measured against the darkest surface it can land
+   on (--color-ink-150). Worst case in the ramp is 5.6:1, so all text clears
+   WCAG AA with headroom rather than sitting on the 4.5 line. Re-measure with
+   scripts/check-contrast.mjs after changing any value here. */
 @theme {
   --color-ink-000: #08090a;   /* page */
-  --color-ink-050: #0e0f12;   /* rail, chrome */
-  --color-ink-100: #131519;   /* panel */
-  --color-ink-150: #191c21;   /* panel, raised */
-  --color-ink-200: #23262d;   /* hairline */
-  --color-ink-300: #333740;   /* hairline, emphasis */
+  --color-ink-050: #0f1114;   /* rail, chrome */
+  --color-ink-100: #14161a;   /* panel */
+  --color-ink-150: #1b1e24;   /* panel, raised */
+  --color-ink-200: #2b3038;   /* rule — decorative divider */
+  --color-ink-300: #323740;   /* border — panel edge */
+  --color-ink-400: #636b79;   /* control edge — 3.4:1, meets 1.4.11 */
 
-  --color-type-hi: #edeef0;
-  --color-type-mid: #a4a9b2;
-  --color-type-lo: #6b7079;
+  --color-type-hi: #f0f1f3;   /* 14.8:1 */
+  --color-type-mid: #b6bcc5;  /*  8.7:1 */
+  --color-type-lo: #949ba6;   /*  6.0:1 — was #6b7079 at 3.4:1, the main offender */
 
-  --color-signal-red: #c8102e;      /* Prather red — reserved for brand + alarm */
-  --color-signal-amber: #c98a12;
-  --color-signal-green: #2e9e63;
-  --color-signal-blue: #3b7ea1;
-  --color-signal-violet: #7a6bb0;
+  /* Prather red splits in two. The brand red is a FILL colour (logo rule,
+     primary button) where white sits on top at 5.9:1. As TEXT on a dark panel
+     it only reached 2.9:1, so status text uses the lifted variant. */
+  --color-brand-red: #c8102e;
+  --color-signal-red: #ef6b7d;      /* 5.6:1 */
+  --color-signal-amber: #e0a93c;    /* 7.9:1 */
+  --color-signal-green: #4cbd84;    /* 7.1:1 */
+  --color-signal-blue: #6aa8c9;     /* 6.4:1 */
+  --color-signal-violet: #a294d4;   /* 6.1:1 */
 
   --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
@@ -47,10 +56,13 @@ body {
 
 /* --- type -------------------------------------------------------------- */
 
+/* Was 10px at 0.14em in a 3.4:1 grey — small, wide-tracked and dim at once.
+   Tracking that loose actively hurts legibility at small sizes, so this pulls
+   size up and tracking in. */
 .eyebrow {
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--color-type-lo);
 }
@@ -63,9 +75,9 @@ body {
 
 .mono {
   font-family: var(--font-mono);
-  font-size: 11px;
-  letter-spacing: 0.01em;
-  color: var(--color-type-mid);
+  font-size: 12px;
+  letter-spacing: 0;
+  color: var(--color-type-lo);
 }
 
 /* --- surfaces ---------------------------------------------------------- */
@@ -102,9 +114,9 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   white-space: nowrap;
 }
@@ -149,13 +161,16 @@ body {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 6px 12px;
-  border: 1px solid var(--color-ink-300);
+  /* Was 6px/12px — a 24px-tall target. 32px clears the 24x24 CSS px minimum
+     with room, without turning a dense toolbar into a phone UI. */
+  padding: 7px 13px;
+  min-height: 32px;
+  border: 1px solid var(--color-ink-400);
   background: var(--color-ink-150);
   color: var(--color-type-hi);
   font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   cursor: pointer;
   transition: background 120ms, border-color 120ms, color 120ms;
@@ -172,9 +187,10 @@ body {
   opacity: 1;
 }
 
+/* The brand red, not the status red: white on #c8102e is 5.9:1. */
 .btn-primary {
-  background: var(--color-signal-red);
-  border-color: var(--color-signal-red);
+  background: var(--color-brand-red);
+  border-color: var(--color-brand-red);
   color: #fff;
 }
 .btn-primary:hover:not(:disabled) { background: #e0142f; border-color: #e0142f; }
@@ -185,22 +201,27 @@ body {
 .btn-reject { border-color: #6d2530; color: #e8798a; }
 .btn-reject:hover:not(:disabled) { background: #261417; border-color: #8d2f3d; }
 
-.btn-ghost { background: transparent; border-color: var(--color-ink-200); color: var(--color-type-mid); }
-.btn-ghost:hover:not(:disabled) { color: var(--color-type-hi); border-color: var(--color-ink-300); }
+.btn-ghost { background: transparent; border-color: var(--color-ink-300); color: var(--color-type-mid); }
+.btn-ghost:hover:not(:disabled) { color: var(--color-type-hi); border-color: var(--color-ink-400); }
 
-.btn-xs { padding: 3px 8px; font-size: 10px; }
+.btn-xs { padding: 5px 10px; min-height: 28px; font-size: 11px; }
 
 .field {
   width: 100%;
   background: var(--color-ink-000);
-  border: 1px solid var(--color-ink-200);
+  border: 1px solid var(--color-ink-400);
   color: var(--color-type-hi);
-  padding: 8px 10px;
-  font-size: 13px;
+  /* 14px: below this iOS zooms the viewport on focus. */
+  padding: 9px 11px;
+  font-size: 14px;
   font-family: inherit;
 }
-.field:focus {
-  outline: none;
+.field::placeholder { color: var(--color-type-lo); opacity: 1; }
+/* A 2px ring rather than a recoloured 1px border — a border swap alone is easy
+   to miss, and focus has to be unmissable for keyboard operation. */
+.field:focus-visible {
+  outline: 2px solid var(--color-signal-blue);
+  outline-offset: 1px;
   border-color: var(--color-signal-blue);
 }
 textarea.field { line-height: 1.55; resize: vertical; }
@@ -210,17 +231,18 @@ textarea.field { line-height: 1.55; resize: vertical; }
 .grid-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .grid-table thead th {
   text-align: left;
-  padding: 8px 14px;
-  font-size: 10px;
+  padding: 9px 14px;
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--color-type-lo);
   background: var(--color-ink-050);
-  border-bottom: 1px solid var(--color-ink-200);
+  border-bottom: 1px solid var(--color-ink-300);
   white-space: nowrap;
 }
-.grid-table tbody td { padding: 10px 14px; border-bottom: 1px solid var(--color-ink-200); vertical-align: middle; }
+/* Row rhythm was 10px; dense is the point, but cramped is not. */
+.grid-table tbody td { padding: 11px 14px; border-bottom: 1px solid var(--color-ink-200); vertical-align: middle; }
 .grid-table tbody tr:last-child td { border-bottom: none; }
 .grid-table tbody tr:hover { background: var(--color-ink-150); }
 
@@ -228,9 +250,9 @@ textarea.field { line-height: 1.55; resize: vertical; }
 
 .tag {
   display: inline-block;
-  padding: 2px 6px;
-  border: 1px solid var(--color-ink-300);
-  font-size: 10px;
+  padding: 3px 7px;
+  border: 1px solid var(--color-ink-400);
+  font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -238,16 +260,23 @@ textarea.field { line-height: 1.55; resize: vertical; }
 }
 
 .tag-sim {
-  border-color: #6d5a1f;
+  border-color: #7d6825;
   color: var(--color-signal-amber);
-  background: #1d1809;
+  background: #201a0a;
 }
 
 a { color: inherit; }
 .link { color: var(--color-signal-blue); text-decoration: none; }
 .link:hover { text-decoration: underline; }
 
-::selection { background: var(--color-signal-red); color: #fff; }
+/* Every interactive element gets a visible ring. Removing focus outlines is
+   the single most common way a keyboard-operable UI stops being operable. */
+:focus-visible {
+  outline: 2px solid var(--color-signal-blue);
+  outline-offset: 2px;
+}
+
+::selection { background: var(--color-brand-red); color: #fff; }
 
 /* Scrollbars that match the desk rather than the OS. */
 * { scrollbar-width: thin; scrollbar-color: var(--color-ink-300) transparent; }

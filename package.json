@@ -20,7 +20,8 @@
     "start:production": "node scripts/start-production.mjs",
     "db:push": "drizzle-kit push",
     "job:rumble-poll": "node scripts/enqueue-job.mjs rumble.poll_live",
-    "job:health-check": "node scripts/enqueue-job.mjs integration.health_check"
+    "job:health-check": "node scripts/enqueue-job.mjs integration.health_check",
+    "check:contrast": "node scripts/check-contrast.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

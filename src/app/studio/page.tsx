@@ -110,7 +110,7 @@ export default async function Dashboard() {
                 </div>
                 <div className="text-right">
                   <div className="eyebrow mb-1">Countdown</div>
-                  <div className="display text-[22px] text-[var(--color-signal-red)]">
+                  <div className="display text-[24px] text-[var(--color-signal-red)]">
                     {countdown(next.scheduledAt)}
                   </div>
                 </div>

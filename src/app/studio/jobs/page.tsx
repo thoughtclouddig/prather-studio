@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import Link from "next/link";
 import { desc, eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
@@ -93,15 +94,15 @@ export default async function JobsPage({
                   <th>Episode</th>
                   <th>State</th>
                   <th>Attempt</th>
-                  <th>Created</th>
+                  <th className="hidden lg:table-cell">Created</th>
                   <th>Last run</th>
-                  <th>Error</th>
                   <th className="text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {rows.map(({ job, episodeTitle, episodeId }) => (
-                  <tr key={job.id}>
+                  <Fragment key={job.id}>
+                  <tr className={job.lastError ? "[&>td]:border-b-0" : ""}>
                     <td className="mono whitespace-nowrap font-semibold">{job.kind}</td>
                     <td className="text-[12px] max-w-[220px]">
                       {episodeId ? (
@@ -121,7 +122,9 @@ export default async function JobsPage({
                     <td className="mono">
                       {job.attempts}/{job.maxAttempts}
                     </td>
-                    <td className="mono whitespace-nowrap">{stamp(job.createdAt)}</td>
+                    <td className="mono whitespace-nowrap hidden lg:table-cell">
+                      {stamp(job.createdAt)}
+                    </td>
                     <td className="mono whitespace-nowrap">
                       {job.finishedAt
                         ? relative(job.finishedAt)
@@ -129,15 +132,23 @@ export default async function JobsPage({
                           ? `retry ${relative(job.runAfter)}`
                           : "—"}
                     </td>
-                    <td className="text-[11px] text-[var(--color-signal-red)] max-w-[320px]">
-                      {job.lastError ?? ""}
-                    </td>
                     <td className="text-right">
                       {(job.state === "DEAD" || job.state === "FAILED") && (
                         <RetryButton jobId={job.id} />
                       )}
                     </td>
                   </tr>
+                  {job.lastError && (
+                    <tr>
+                      <td colSpan={7} className="pt-0">
+                        <div className="flex gap-2 text-[12px] leading-relaxed text-[var(--color-signal-red)]">
+                          <span aria-hidden="true" className="flex-none">&#8627;</span>
+                          <span>{job.lastError}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
