@@ -31,6 +31,11 @@
  */
 import { spawn } from "node:child_process";
 
+// Set here rather than in .replit's [env], which would also apply to install
+// and build and make npm skip devDependencies. The processes that serve are
+// the only ones that need it, and they inherit this.
+process.env.NODE_ENV ??= "production";
+
 const children = [];
 let shuttingDown = false;
 

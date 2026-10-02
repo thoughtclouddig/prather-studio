@@ -2,7 +2,7 @@
   "name": "prather-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "The Prather Point production studio — Phase 1 vertical foundation",
+  "description": "The Prather Point production studio \u2014 Phase 1 vertical foundation",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
@@ -34,7 +34,8 @@
     "postgres": "^3.4.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "tsx": "^4.20.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",
@@ -44,7 +45,6 @@
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.20.0",
     "typescript": "^5.9.3",
     "vitest": "^5.0.0"
   }

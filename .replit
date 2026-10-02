@@ -24,8 +24,13 @@ deploymentTarget = "vm"
 localPort = 3000
 externalPort = 80
 
-[env]
-NODE_ENV = "production"
+# NODE_ENV is deliberately NOT set here.
+#
+# Replit applies [env] to the install and build steps as well as the run step,
+# and `NODE_ENV=production` makes npm skip devDependencies entirely -- so the
+# build cannot find @tailwindcss/postcss or typescript and fails on the first
+# stylesheet. The production value is set by scripts/start-production.mjs for
+# the processes that actually serve, which is the only place it should apply.
 
 # The Rumble poll is the only lifecycle signal Rumble gives us, so it runs on a
 # schedule rather than on demand. 60s is fine: the API is poll-only, has no
