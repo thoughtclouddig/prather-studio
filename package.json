@@ -27,7 +27,9 @@
     "job:metrics-snapshot": "node scripts/enqueue-job.mjs metrics.snapshot",
     "bootstrap:owner": "tsx --tsconfig worker/tsconfig.json src/db/bootstrap-owner.ts",
     "bootstrap:show": "tsx --tsconfig worker/tsconfig.json src/db/bootstrap-show.ts",
-    "bootstrap": "npm run bootstrap:show && npm run bootstrap:owner"
+    "bootstrap": "npm run bootstrap:show && npm run bootstrap:owner",
+    "stop": "fuser -k 3000/tcp 2>/dev/null; pkill -f \"next start\"; pkill -f \"worker/index.ts\"; sleep 2; echo stopped",
+    "restart": "npm run stop; npm run start:production"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

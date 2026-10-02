@@ -30,6 +30,7 @@
  * instance, so there is no concurrent-migration race to guard against.
  */
 import { spawn } from "node:child_process";
+import { connect } from "node:net";
 
 // Set here rather than in .replit's [env], which would also apply to install
 // and build and make npm skip devDependencies. The processes that serve are
@@ -126,5 +127,77 @@ try {
   process.exit(1);
 }
 
-start("web", "npx", ["next", "start", "-p", port, "-H", "0.0.0.0"]);
-start("worker", "npx", ["tsx", "--tsconfig", "worker/tsconfig.json", "worker/index.ts"]);
+/**
+ * Wait until the web server is actually accepting connections.
+ *
+ * The worker used to start at the same moment as the web process. When the web
+ * process failed to bind -- a stale server still holding the port is the common
+ * case -- the worker had already spawned, and it outlived the shutdown: the
+ * SIGTERM raced its startup and lost. Every failed start therefore left another
+ * worker polling the production queue, which is precisely the competing-worker
+ * problem this phase set out to prevent.
+ *
+ * So the worker starts only once the port is answering. If the web process
+ * cannot bind, no worker is ever created and there is nothing to orphan.
+ */
+function waitForWeb(child, targetPort, timeoutMs = 60_000) {
+  const deadline = Date.now() + timeoutMs;
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    // A port answering is NOT proof our server is up. When a stale process
+    // still owns 3000, the connect succeeds against THAT process while ours
+    // dies on EADDRINUSE -- so the child's own exit is the authoritative
+    // signal, and it has to win the race rather than merely usually winning.
+    const onExit = (code) => {
+      if (settled) return;
+      settled = true;
+      reject(new Error(`web exited with code ${code} before it was listening`));
+    };
+    child.once("exit", onExit);
+
+    const attempt = () => {
+      if (settled) return;
+      const socket = connect({ port: Number(targetPort), host: "127.0.0.1" });
+      socket.once("connect", () => {
+        socket.destroy();
+        // Give the child a moment to surface a bind error it is about to hit.
+        setTimeout(() => {
+          if (settled) return;
+          if (child.exitCode !== null) return onExit(child.exitCode);
+          settled = true;
+          child.off("exit", onExit);
+          resolve();
+        }, 400);
+      });
+      socket.once("error", () => {
+        socket.destroy();
+        if (settled) return;
+        if (Date.now() > deadline) {
+          settled = true;
+          child.off("exit", onExit);
+          reject(new Error(`web did not accept connections on ${targetPort}`));
+          return;
+        }
+        setTimeout(attempt, 250);
+      });
+    };
+    attempt();
+  });
+}
+
+const web = start("web", "npx", ["next", "start", "-p", port, "-H", "0.0.0.0"]);
+
+try {
+  await waitForWeb(web, port);
+} catch (error) {
+  log("web_never_listened", { error: error.message });
+  shutdown(1);
+}
+
+// Only reached when the web process is genuinely serving.
+if (!shuttingDown && !web.killed) {
+  log("web_listening", { port });
+  start("worker", "npx", ["tsx", "--tsconfig", "worker/tsconfig.json", "worker/index.ts"]);
+}
