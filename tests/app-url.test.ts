@@ -99,3 +99,44 @@ describe("redirect uri", () => {
     );
   });
 });
+
+/**
+ * The failure that cost an afternoon: the whole documentation line was pasted
+ * into the Secrets value box, so APP_BASE_URL held its own name as well.
+ */
+describe("malformed configuration is discarded, not propagated", () => {
+  it('ignores a value that includes "NAME = " and falls through', () => {
+    process.env.APP_BASE_URL =
+      "APP_BASE_URL = https://abc-00-xyz.riker.replit.dev";
+    process.env.REPLIT_DOMAINS = "abc-00-xyz.riker.replit.dev";
+    expect(appBaseUrl()).toBe("https://abc-00-xyz.riker.replit.dev");
+    expect(youtubeRedirectUri()).toBe(
+      "https://abc-00-xyz.riker.replit.dev/api/integrations/youtube/callback",
+    );
+  });
+
+  it("never emits a redirect_uri containing a space", () => {
+    process.env.APP_BASE_URL = "APP_BASE_URL = https://abc.replit.dev";
+    expect(youtubeRedirectUri()).not.toMatch(/\s/);
+  });
+
+  it("handles NAME=value with no spaces", () => {
+    process.env.APP_BASE_URL = "APP_BASE_URL=https://abc.replit.dev";
+    expect(appBaseUrl()).toBe("https://abc.replit.dev");
+  });
+
+  it("strips surrounding quotes", () => {
+    process.env.APP_BASE_URL = '"https://abc.replit.dev"';
+    expect(appBaseUrl()).toBe("https://abc.replit.dev");
+  });
+
+  it("discards an unparseable value rather than passing it on", () => {
+    process.env.APP_BASE_URL = "not a url at all !!";
+    expect(appBaseUrl()).toBe("http://localhost:3000");
+  });
+
+  it("reduces a URL with a path to its origin", () => {
+    process.env.APP_BASE_URL = "https://abc.replit.dev/studio/integrations";
+    expect(appBaseUrl()).toBe("https://abc.replit.dev");
+  });
+});
