@@ -13,10 +13,11 @@ import { saveCredential } from "@/lib/integrations/credentials";
 import { exchangeCode } from "@/lib/integrations/youtube/oauth";
 import { YOUTUBE_SCOPES } from "@/lib/integrations/youtube/scopes";
 import { getMyChannel } from "@/lib/integrations/youtube/client";
+import { appBaseUrl } from "@/lib/app-url";
 import { OAUTH_STATE_COOKIE } from "../start/route";
 
 function back(message: string, kind: "error" | "ok" = "error") {
-  const base = process.env.APP_BASE_URL ?? "http://localhost:3000";
+  const base = appBaseUrl();
   return NextResponse.redirect(
     new URL(`/studio/integrations?${kind}=${encodeURIComponent(message)}`, base),
   );

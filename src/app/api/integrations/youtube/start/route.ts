@@ -5,6 +5,7 @@
  * so a callback the operator did not initiate cannot connect an account.
  */
 import { cookies } from "next/headers";
+import { appBaseUrl } from "@/lib/app-url";
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth/session";
 import { can } from "@/lib/auth/authorize";
@@ -45,5 +46,5 @@ export async function GET() {
 }
 
 function baseUrl() {
-  return process.env.APP_BASE_URL ?? "http://localhost:3000";
+  return appBaseUrl();
 }

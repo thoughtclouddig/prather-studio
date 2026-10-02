@@ -5,6 +5,7 @@
  * one fewer dependency to keep current.
  */
 import "server-only";
+import { youtubeRedirectUri } from "@/lib/app-url";
 import { randomBytes } from "node:crypto";
 import { YOUTUBE_SCOPES } from "./scopes";
 
@@ -30,9 +31,7 @@ export function oauthConfig(): OAuthConfig {
   return {
     clientId,
     clientSecret,
-    redirectUri:
-      process.env.YOUTUBE_REDIRECT_URI ??
-      `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/api/integrations/youtube/callback`,
+    redirectUri: youtubeRedirectUri(),
   };
 }
 
