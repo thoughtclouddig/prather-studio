@@ -434,3 +434,76 @@ can take it from there and the remaining manual step collapses to one paste.
 If it goes StreamYard → laptop → browser upload, then automating it needs
 somewhere to put the file, which is a storage decision rather than an
 integration one.
+
+---
+
+## 8. OpusClip — capability check before building
+
+Checked 2026-10-02, before any adapter work, because the audio investigation
+(§7) established that "where does the media come from" is the question that
+decides whether a clip integration is possible at all.
+
+### It takes a URL, and it accepts the ones we already have
+
+`POST /api/clip-projects` with a `videoUrl`. The documented sources include
+**YouTube** and **Rumble** — along with Google Drive, Vimeo, Dropbox, StreamYard
+and "any public video S3 link of an MP4".
+
+This is the opposite of the audio situation and it is the finding that makes the
+integration cheap. Every episode already stores its YouTube video id from the
+Phase 2 matching step, so submission is:
+
+```
+POST /api/clip-projects
+{ "videoUrl": "https://www.youtube.com/watch?v=<id>", ... }
+```
+
+No download, no transcode, no operator step, nothing held on our side. The
+Studio never touches the media — same property as the Buzzsprout upload, reached
+for a better reason.
+
+### Surface
+
+| | |
+|---|---|
+| Auth | `Authorization: Bearer <key>`; key from `clip.opus.pro/dashboard`, lower left |
+| Submit | `POST /api/clip-projects` |
+| Retrieve | `GET /api/exportable-clips?type=findByProjectId&projectId=…` |
+| Notify | `conclusionActions` — webhook or email on completion |
+
+Webhooks are **signed**: `X-Opus-Signature`, `X-Opus-Salt`, `X-Opus-Timestamp`.
+That matches the Phase 0 rule for inbound webhooks — verify the signature,
+persist the raw event before processing, dedupe on the provider event id, and
+never action an unverified event.
+
+### Curation controls, and the one that is missing
+
+Documented: `curationPref.model` (`ClipBasic` or `ClipAnything`),
+`clipDurations`, `genre`, `topicKeywords` (Basic), `customPrompt` (Anything),
+`range` (startSec/endSec), `enableAutoHook`, `skipCurate`;
+`renderPref.layoutAspectRatio` (portrait/landscape/square),
+`enableRemoveFillerWords`; `brandTemplateId`.
+
+**There is no documented parameter for the NUMBER of clips returned.** That
+matters, because FEWER, BETTER CLIPS is a product rule, not a preference — the
+point was never to generate clip spam.
+
+So the cap is enforced on our side, and the existing content engine already does
+the work: it proposes clip candidates with timestamps and reasons, drawn from the
+transcript. Two ways to use that, to decide once we see real output:
+
+1. `ClipAnything` + `customPrompt` built from the approved clip candidates, so
+   OpusClip is told what the episode is actually about rather than guessing.
+2. `range` per candidate — submit the specific moments a human approved.
+
+Either way the selection stays editorial and human-approved, and OpusClip does
+the rendering rather than the judgement.
+
+### Not yet verified
+
+No limits on video length or file size are documented, and the plan tier
+required for API access is not stated in the reference — the Phase 0 audit noted
+"Requires a Pro (Beta), Max or Business plan — the account's plan has not been
+confirmed". A Prather Point broadcast runs about 85 minutes, which is long for a
+clipping service, so **the first real submission is the test that matters.**
+Nothing here is proven against the account until one episode has been through it.
