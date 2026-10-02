@@ -2,7 +2,7 @@
   "name": "prather-studio",
   "version": "0.1.0",
   "private": true,
-  "description": "The Prather Point production studio \u2014 Phase 1 vertical foundation",
+  "description": "The Prather Point production studio — Phase 1 vertical foundation",
   "scripts": {
     "dev": "next dev -p 3000",
     "build": "next build",
@@ -25,7 +25,9 @@
     "db:seed": "npm run db:seed:dev",
     "db:reset": "npm run db:reset:dev",
     "job:metrics-snapshot": "node scripts/enqueue-job.mjs metrics.snapshot",
-    "bootstrap:owner": "tsx --tsconfig worker/tsconfig.json src/db/bootstrap-owner.ts"
+    "bootstrap:owner": "tsx --tsconfig worker/tsconfig.json src/db/bootstrap-owner.ts",
+    "bootstrap:show": "tsx --tsconfig worker/tsconfig.json src/db/bootstrap-show.ts",
+    "bootstrap": "npm run bootstrap:show && npm run bootstrap:owner"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
