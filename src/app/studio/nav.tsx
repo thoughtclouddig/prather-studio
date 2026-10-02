@@ -20,7 +20,7 @@ export function NavLink({
       className={[
         "flex items-center px-3.5 text-[11px] font-bold uppercase tracking-[0.1em] whitespace-nowrap border-b-2 transition-colors",
         active
-          ? "border-[var(--color-signal-red)] text-[var(--color-type-hi)]"
+          ? "border-[var(--color-brand-red)] text-[var(--color-type-hi)]"
           : "border-transparent text-[var(--color-type-lo)] hover:text-[var(--color-type-hi)]",
       ].join(" ")}
     >

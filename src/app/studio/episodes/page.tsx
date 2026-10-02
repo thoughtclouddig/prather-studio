@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listEpisodes, needsAttention, type EpisodeRow } from "@/lib/domain/episodes";
+import { classifyEpisode, isPastUnresolved, isUpcoming } from "@/lib/domain/schedule";
 import {
   PACKAGING_LABEL,
   PACKAGING_TONE,
@@ -17,6 +18,7 @@ export const dynamic = "force-dynamic";
 const FILTERS = [
   { key: "all", label: "All" },
   { key: "upcoming", label: "Upcoming" },
+  { key: "unresolved", label: "Unresolved" },
   { key: "review", label: "Needs review" },
   { key: "published", label: "Published" },
   { key: "attention", label: "Needs attention" },
@@ -24,10 +26,15 @@ const FILTERS = [
 
 type FilterKey = (typeof FILTERS)[number]["key"];
 
-function applyFilter(rows: EpisodeRow[], filter: FilterKey): EpisodeRow[] {
+function applyFilter(rows: EpisodeRow[], filter: FilterKey, now: Date): EpisodeRow[] {
   switch (filter) {
     case "upcoming":
-      return rows.filter((r) => !r.airedAt);
+      // Upcoming means scheduled in the FUTURE. It used to mean "has no aired
+      // stamp", which never expired — a show from last week stayed upcoming
+      // forever because nothing had observed it.
+      return rows.filter((r) => isUpcoming(r, now));
+    case "unresolved":
+      return rows.filter((r) => isPastUnresolved(r, now));
     case "review":
       return rows.filter((r) => r.packaging === "REVIEW");
     case "published":
@@ -35,7 +42,7 @@ function applyFilter(rows: EpisodeRow[], filter: FilterKey): EpisodeRow[] {
         r.publications.some((p) => p.state === "PUBLISHED"),
       );
     case "attention":
-      return rows.filter(needsAttention);
+      return rows.filter((r) => needsAttention(r) || isPastUnresolved(r, now));
     default:
       return rows;
   }
@@ -51,8 +58,9 @@ export default async function EpisodesPage({
   const { filter } = await searchParams;
   const active = (FILTERS.find((f) => f.key === filter)?.key ?? "all") as FilterKey;
 
+  const now = new Date();
   const all = await listEpisodes();
-  const rows = applyFilter(all, active);
+  const rows = applyFilter(all, active, now);
 
   return (
     <div className="space-y-5">
@@ -61,12 +69,17 @@ export default async function EpisodesPage({
           <div className="eyebrow">Archive</div>
           <h1 className="display text-[26px]">Episodes</h1>
         </div>
-        <div className="mono">{all.length} total</div>
+        <div className="flex items-center gap-3">
+          <span className="mono">{all.length} total</span>
+          <Link href="/studio/episodes/new" className="btn btn-primary btn-xs">
+            New episode
+          </Link>
+        </div>
       </div>
 
       <nav className="flex flex-wrap items-stretch border border-[var(--color-ink-200)] bg-[var(--color-ink-050)]">
         {FILTERS.map((f) => {
-          const count = applyFilter(all, f.key).length;
+          const count = applyFilter(all, f.key, now).length;
           const on = f.key === active;
           return (
             <Link
@@ -117,6 +130,12 @@ export default async function EpisodesPage({
                       <div className="mono mt-0.5">
                         {e.episodeNumber ? `#${e.episodeNumber} · ` : ""}
                         {e.slug}
+                        {classifyEpisode(e, now) === "PAST_UNRESOLVED" && (
+                          <span className="text-[var(--color-signal-amber)]">
+                            {" "}
+                            · past schedule, unresolved
+                          </span>
+                        )}
                         {needsAttention(e) && (
                           <span className="text-[var(--color-signal-red)]">
                             {" "}

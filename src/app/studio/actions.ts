@@ -13,6 +13,7 @@ import {
 } from "@/lib/domain/publications";
 import { updateEpisode } from "@/lib/domain/episodes";
 import { enqueue, retry } from "@/lib/queue/queue";
+import { DiagnosticsDisabledError, diagnosticsEnabled } from "@/lib/diagnostics";
 import { fromShowInputValue } from "@/lib/format";
 import type { EpisodePhase, PublicationIntent, Readiness } from "@/db/schema";
 
@@ -156,6 +157,11 @@ export async function enqueueTestJobAction(
   const kind = String(formData.get("kind"));
   if (kind !== "ping" && kind !== "fail-test") {
     return { error: "Only the ping and fail-test handlers can be run manually." };
+  }
+  // Refused on the server, not merely hidden in the UI — a hidden button is a
+  // presentation choice, and this needs to be a rule.
+  if (!diagnosticsEnabled()) {
+    return { error: new DiagnosticsDisabledError(kind).message };
   }
   return guarded(async () => {
     const user = await requirePermission("job.retry");

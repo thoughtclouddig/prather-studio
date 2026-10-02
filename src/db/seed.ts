@@ -13,6 +13,7 @@ import "dotenv/config";
 import { and, eq } from "drizzle-orm";
 import { hashPassword } from "../lib/auth/password";
 import { db, sql } from "./client";
+import { DestructiveOperationRefused, requireDestructiveAllowed } from "./guard";
 import {
   activityEvents,
   episodeContentDrafts,
@@ -64,11 +65,40 @@ const ago = (days: number, hours = 0) =>
   new Date(Date.now() - days * 86_400_000 - hours * 3_600_000);
 
 async function main() {
+  await requireDestructiveAllowed("db:seed:dev");
+
   console.log("[seed] clearing existing data");
-  await sql`TRUNCATE TABLE
-    activity_events, jobs, episode_content_drafts, episode_publications,
-    episodes, sponsors, shows, sessions, users, settings
-    RESTART IDENTITY CASCADE`;
+
+  // Deletes in dependency order rather than TRUNCATE ... CASCADE.
+  //
+  // The old TRUNCATE listed `users`, and integration_credentials references
+  // users, so CASCADE silently emptied it too. That destroyed a real Google
+  // refresh token, a real Rumble Live Stream API URL and a real Buzzsprout key
+  // every time someone re-seeded — each of which has to be re-authorised by
+  // hand, and YouTube's needs a browser consent round-trip.
+  //
+  // Connections are a property of the ENVIRONMENT, not of the sample data, so
+  // the seed now leaves them alone and only drops its own attribution.
+  await sql`UPDATE integration_credentials SET connected_by = NULL`;
+  await sql`DELETE FROM broadcast_observations`;
+  await sql`DELETE FROM transcript_segments`;
+  await sql`DELETE FROM episode_transcripts`;
+  await sql`DELETE FROM activity_events`;
+  await sql`DELETE FROM jobs`;
+  await sql`DELETE FROM episode_content_drafts`;
+  await sql`DELETE FROM episode_publications`;
+  await sql`DELETE FROM episodes`;
+  await sql`DELETE FROM standing_blocks`;
+  await sql`DELETE FROM sponsors`;
+  await sql`DELETE FROM shows`;
+  await sql`DELETE FROM sessions`;
+  await sql`DELETE FROM users`;
+  await sql`DELETE FROM settings`;
+
+  const [kept] = await sql`SELECT count(*)::int AS n FROM integration_credentials`;
+  if (kept && Number(kept["n"]) > 0) {
+    console.log(`[seed] preserved ${kept["n"]} integration credential(s)`);
+  }
 
   /* ------------------------------------------------------------- users */
 
@@ -665,6 +695,10 @@ Jeffrey Prather · MAJ, US Army (Ret.) · ex-DIA / DEA`,
 }
 
 main().catch((e) => {
+  if (e instanceof DestructiveOperationRefused) {
+    console.error(`\n${e.message}`);
+    process.exit(2);
+  }
   console.error("[seed] failed:", e);
   process.exit(1);
 });

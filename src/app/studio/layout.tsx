@@ -23,7 +23,7 @@ export default async function StudioLayout({
       <header className="border-b border-[var(--color-ink-200)] bg-[var(--color-ink-050)] sticky top-0 z-20">
         <div className="flex items-center gap-4 px-4 h-12">
           <Link href="/studio" className="flex items-center gap-2.5 flex-none">
-            <span className="w-[3px] h-6 bg-[var(--color-signal-red)]" />
+            <span className="w-[3px] h-6 bg-[var(--color-brand-red)]" />
             <span className="display text-[13px] tracking-tight">
               PRATHER<span className="text-[var(--color-type-lo)]">·</span>STUDIO
             </span>
@@ -55,8 +55,9 @@ export default async function StudioLayout({
 
       <footer className="border-t border-[var(--color-ink-200)] px-4 py-2.5">
         <p className="mono text-[10px]">
-          PHASE 1 — internal foundation. No platform integrations are connected;
-          every publish action in this build is simulated.
+          PHASE 2 — YouTube and Rumble are real connections. Rumble is observed only.
+          Buzzsprout, Mailchimp, WordPress, OpusClip and Locals have no adapter yet;
+          their publish actions are simulated and labelled as such.
         </p>
       </footer>
     </div>

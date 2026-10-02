@@ -194,6 +194,68 @@ export async function fail(
 }
 
 /**
+ * Put a job back in the queue because the work is not ready yet.
+ *
+ * This is NOT a failure and must not look like one. Waiting for YouTube to
+ * finish generating captions is the provider doing normal asynchronous work,
+ * and marking it FAILED would put red on the Jobs page after every single show
+ * — which is precisely how a page stops being read.
+ *
+ * So a deferral:
+ *   · returns the job to PENDING with a later `run_after`
+ *   · REFUNDS the attempt, because the attempt did not fail
+ *   · records a `job.deferred` activity line saying why and for how long
+ *
+ * `attempts` is decremented because `claim` incremented it on the way in. A
+ * job that is deferred fifty times has not used up fifty of its three tries;
+ * only genuine errors spend attempts, which keeps dead-lettering meaningful.
+ */
+export async function defer(
+  jobId: string,
+  runAfter: Date,
+  reason: string,
+): Promise<Job> {
+  const [updated] = await db
+    .update(jobs)
+    .set({
+      state: "PENDING",
+      runAfter,
+      attempts: raw`GREATEST(${jobs.attempts} - 1, 0)`,
+      lastError: null,
+      claimedAt: null,
+      claimedBy: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(jobs.id, jobId))
+    .returning();
+
+  await recordActivity({
+    actor: SYSTEM_ACTOR,
+    verb: "job.deferred",
+    subjectType: "job",
+    subjectId: jobId,
+    episodeId: updated?.episodeId,
+    summary: reason,
+    after: { runAfter: runAfter.toISOString(), state: "PENDING" },
+  });
+  return updated!;
+}
+
+/**
+ * Thrown by a handler that wants to be run again later rather than to fail.
+ * The worker translates it into `defer`.
+ */
+export class JobDeferred extends Error {
+  constructor(
+    readonly runAfter: Date,
+    readonly why: string,
+  ) {
+    super(why);
+    this.name = "JobDeferred";
+  }
+}
+
+/**
  * Operator-initiated retry of a FAILED or DEAD job. Attempts reset to zero so
  * the job gets a genuinely fresh run; `lastError` is kept until the next
  * attempt overwrites it, so the Jobs page can still say why it died.

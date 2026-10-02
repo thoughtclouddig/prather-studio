@@ -10,10 +10,18 @@
  */
 import "dotenv/config";
 import { sql } from "../src/db/client";
-import { claim, fail, reclaimStale, succeed } from "../src/lib/queue/queue";
+import { claim, defer, fail, JobDeferred, reclaimStale, succeed } from "../src/lib/queue/queue";
 import { getHandler } from "../src/lib/queue/handlers";
+import {
+  assertWorkerAllowed,
+  beat,
+  HEARTBEAT_INTERVAL_MS,
+  identify,
+  register,
+} from "../src/lib/queue/worker-registry";
 
-const WORKER_ID = process.env.WORKER_ID ?? `worker-${process.pid}`;
+const IDENTITY = identify();
+const WORKER_ID = IDENTITY.workerId;
 const POLL_MS = Number(process.env.WORKER_POLL_MS ?? 2000);
 const BATCH = Number(process.env.WORKER_BATCH ?? 5);
 
@@ -38,6 +46,17 @@ async function tick(): Promise<number> {
       await succeed(job.id, (result ?? undefined) as Record<string, unknown> | undefined);
       log("job.succeeded", { jobId: job.id, kind: job.kind, attempt: job.attempts });
     } catch (error) {
+      // A handler that says "not ready yet" is not a handler that failed.
+      if (error instanceof JobDeferred) {
+        await defer(job.id, error.runAfter, error.why);
+        log("job.deferred", {
+          jobId: job.id,
+          kind: job.kind,
+          until: error.runAfter.toISOString(),
+          why: error.why,
+        });
+        continue;
+      }
       const message = error instanceof Error ? error.message : String(error);
       const updated = await fail(job.id, message);
       log(updated.state === "DEAD" ? "job.dead" : "job.failed", {
@@ -52,19 +71,45 @@ async function tick(): Promise<number> {
 }
 
 async function main() {
-  log("worker.start", { pollMs: POLL_MS, batch: BATCH });
+  log("worker.start", {
+    pollMs: POLL_MS,
+    batch: BATCH,
+    environment: IDENTITY.environment,
+    version: IDENTITY.version,
+  });
+
+  // Before touching a single job: is this worker allowed to run against this
+  // database at all? Phase 2 had four workers competing, two of them stale.
+  const verdict = await assertWorkerAllowed(IDENTITY);
+  if (!verdict.allowed) {
+    await register(IDENTITY, verdict.reason);
+    log("worker.refused", { reason: verdict.reason });
+    await sql.end();
+    process.exit(2);
+  }
+  await register(IDENTITY);
 
   // A worker that died mid-job leaves rows stuck in RUNNING. Free them on boot.
   const reclaimed = await reclaimStale();
   if (reclaimed > 0) log("worker.reclaimed_stale", { count: reclaimed });
 
   let sinceReclaim = Date.now();
+  let sinceBeat = 0;
+  let claimedSinceBeat = 0;
   while (running) {
     try {
       const processed = await tick();
+      claimedSinceBeat += processed;
       if (Date.now() - sinceReclaim > 60_000) {
         await reclaimStale();
         sinceReclaim = Date.now();
+      }
+      // The heartbeat is what makes "is the worker running?" answerable from
+      // the Studio rather than from someone SSHing into the VM.
+      if (Date.now() - sinceBeat > HEARTBEAT_INTERVAL_MS) {
+        await beat(WORKER_ID, claimedSinceBeat);
+        claimedSinceBeat = 0;
+        sinceBeat = Date.now();
       }
       // Only idle when there was nothing to do — otherwise drain the backlog.
       if (processed === 0) await new Promise((r) => setTimeout(r, POLL_MS));

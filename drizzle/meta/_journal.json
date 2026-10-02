@@ -8,6 +8,55 @@
       "when": 1788993227387,
       "tag": "0000_faithful_otto_octavius",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789051489069,
+      "tag": "0001_concerned_dracula",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789051800780,
+      "tag": "0002_medical_ultimatum",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789401017883,
+      "tag": "0003_motionless_tony_stark",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789403258729,
+      "tag": "0004_conscious_iceman",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1789403547786,
+      "tag": "0005_blue_morgan_stark",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1789404374751,
+      "tag": "0006_last_namorita",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1789420870044,
+      "tag": "0007_complex_magdalene",
+      "breakpoints": true
     }
   ]
 }

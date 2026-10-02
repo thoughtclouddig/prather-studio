@@ -23,6 +23,12 @@ export default defineConfig({
     hookTimeout: 30_000,
   },
   resolve: {
-    alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+      // `server-only` throws when imported outside a React Server Component.
+      // It is a build-time guard for Next.js; the tests exercise the same
+      // modules directly, so it is stubbed rather than removed from the source.
+      "server-only": fileURLToPath(new URL("./tests/stubs/server-only.ts", import.meta.url)),
+    },
   },
 });

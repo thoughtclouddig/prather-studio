@@ -50,18 +50,10 @@ export function relative(value: Date | null | undefined): string {
   return future ? `in ${days}d` : `${days}d ago`;
 }
 
-export function countdown(target: Date | null | undefined): string {
-  if (!target) return "—";
-  const diff = target.getTime() - Date.now();
-  if (diff <= 0) return "on air / passed";
-  const hours = Math.floor(diff / 3_600_000);
-  const mins = Math.floor((diff % 3_600_000) / 60_000);
-  if (hours >= 24) {
-    const days = Math.floor(hours / 24);
-    return `${days}d ${hours % 24}h`;
-  }
-  return `${hours}h ${mins}m`;
-}
+/* `countdown` lived here and returned "on air / passed" once a scheduled
+ * time went by — asserting the show was airing when nothing had observed
+ * it. Countdown state now belongs to the schedule domain: see
+ * `countdownTo` in src/lib/domain/schedule.ts. */
 
 /* ---------------------------------------------------------------- zoning --
  * The show airs at a fixed wall-clock time in ET. An operator in Phoenix

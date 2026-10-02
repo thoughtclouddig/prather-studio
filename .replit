@@ -26,3 +26,13 @@ externalPort = 80
 
 [env]
 NODE_ENV = "production"
+
+# The Rumble poll is the only lifecycle signal Rumble gives us, so it runs on a
+# schedule rather than on demand. 60s is fine: the API is poll-only, has no
+# documented rate limit, and a stream boundary within a minute is precise
+# enough for a show that runs for an hour.
+#
+# Add these in Replit's Scheduled Deployments pane (they cannot be declared in
+# .replit today):
+#   every 1 minute   npm run job:rumble-poll
+#   every 1 hour     npm run job:health-check

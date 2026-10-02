@@ -40,61 +40,105 @@ Nothing in the code assumes they share a process. To split them later: run
 
 ## Setup
 
-1. **Import the repository** into a Replit App.
+Ordered for a cold start. Steps 1-4 take about ten minutes; step 5 is the one
+people forget and it is the one that breaks YouTube.
 
-2. **Attach PostgreSQL** (Tools → Database). Replit sets `DATABASE_URL`
-   automatically. Nothing else is needed.
+### 1. Import the repository into a Replit App
 
-3. **Add Secrets** (Tools → Secrets) — never commit these:
+Branch `phase-3-automation-buzzsprout` until it merges to `main`.
 
-   | Secret | Notes |
-   |---|---|
-   | `SESSION_SECRET` | `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
-   | `SEED_OWNER_EMAIL` | first OWNER account |
-   | `SEED_OWNER_PASSWORD` | change after first sign-in |
-   | `SEED_EDITOR_EMAIL` | optional |
-   | `SEED_EDITOR_PASSWORD` | optional |
+### 2. Attach PostgreSQL
 
-   Deployment secrets are separate from workspace secrets on Replit. Set them in
-   both, or the deployed app will fail to boot on `SESSION_SECRET`.
+**Tools → Database.** Replit sets `DATABASE_URL` itself. Nothing else to do.
 
-4. **Create the schema**, once, from the workspace shell:
+**You do not need to create the schema.** `start:production` runs migrations
+before it serves a single request, and aborts the boot if they fail. An
+unmigrated database would fail every query and look like an application bug, so
+it fails loudly instead.
 
-   ```bash
-   npm run db:migrate
-   ```
+### 3. Add Secrets
 
-5. **Seed demo data** (optional — Phase 1 only, so the interface can be walked):
+**Tools → Secrets.** Replit keeps *workspace* and *deployment* secrets
+separately — **set them in both**, or the deployed app boots, finds nothing, and
+exits.
 
-   ```bash
-   npm run db:seed
-   ```
+| Secret | Where it comes from |
+|---|---|
+| `CREDENTIAL_ENCRYPTION_KEY` | **Already generated — copy from local `.env`.** Every stored provider credential is AES-256-GCM encrypted with it. Losing it does not lose data, but every connection must be re-authorized. Back it up somewhere other than the database. |
+| `SESSION_SECRET` | Already in local `.env`. Or regenerate: `node -e "console.log(require('crypto').randomBytes(48).toString('base64url'))"` |
+| `YOUTUBE_CLIENT_ID` | Already in local `.env` — the Google Cloud OAuth client is unchanged. |
+| `YOUTUBE_CLIENT_SECRET` | Same. |
+| `ANTHROPIC_API_KEY` | `console.anthropic.com`. Without it everything else works and the content engine reports that it cannot run. |
+| `APP_BASE_URL` | The deployed origin, e.g. `https://prather-studio.replit.app`. **No trailing slash.** This builds the OAuth redirect URI, so a wrong value fails the YouTube connect with a mismatch. |
+| `SEED_OWNER_EMAIL` / `SEED_OWNER_PASSWORD` | The first OWNER account. Change the password after first sign-in. |
 
-   `db:seed` truncates every table, including `sessions`. Everyone is signed out.
+The Rumble key and the Buzzsprout token are **not** secrets here — they are
+per-account data entered through Integrations, encrypted at rest, and rotatable
+without a redeploy.
 
-6. **Deploy.** Deployments pane → **Reserved VM** → *Web server*. The build and
-   run commands come from `.replit`:
+### 4. Deploy
 
-   ```toml
-   [deployment]
-   build = ["npm", "run", "build"]
-   run   = ["npm", "run", "start:production"]
-   ```
+**Deployments → Reserved VM → Web server.** Build and run come from `.replit`:
 
-   The pane writes `deploymentTarget` itself. Replit's public docs do not
-   publish the exact enum for Reserved VM, so pick the type in the pane rather
-   than trusting the value committed in `.replit`.
+```toml
+[deployment]
+build = ["npm", "run", "build"]
+run   = ["npm", "run", "start:production"]
+```
+
+Pick **Reserved VM** in the pane rather than trusting the committed
+`deploymentTarget`: Replit does not publish the exact enum, and Autoscale would
+recycle the instance and stall the worker.
+
+### 5. Add the deployed redirect URI to Google — do not skip this
+
+**console.cloud.google.com → Credentials → your OAuth client → Authorized
+redirect URIs.** Add, exactly, with no trailing slash:
+
+```
+https://<your-repl>.replit.app/api/integrations/youtube/callback
+```
+
+Keep the localhost entry too, so development still works. Without this, the
+YouTube connect fails with `redirect_uri_mismatch` and nothing in the Studio can
+tell you why — the error happens at Google, before the request reaches us.
+
+### 6. Sign in and connect the three providers
+
+**Integrations**, in this order:
+
+1. **YouTube** — Connect, and sign in as the account that owns JP INTEL. The
+   consent screen lists `youtube.force-ssl` and `yt-analytics.readonly`.
+2. **Rumble** — paste the key from `rumble.com/account/livestream-api`. The URL
+   or the key alone both work. It is tested before it is saved.
+3. **Buzzsprout** — paste the API token, leave Podcast ID blank. The podcast is
+   discovered and confirmed before anything is stored.
+
+### 7. Schedule the polls
+
+**Scheduled Deployments** — these cannot be declared in `.replit`:
+
+| Schedule | Command | Why |
+|---|---|---|
+| every 1 minute | `npm run job:rumble-poll` | Rumble emits no "finished" event; the end of a show is inferred from the stream disappearing, so the boundary is only as precise as the poll. |
+| every 1 hour | `npm run job:health-check` | Surfaces an expiring YouTube token before a show, not after. |
+| every 6 hours | `npm run job:metrics-snapshot` | Rumble followers and Buzzsprout plays are point-in-time counters nobody keeps. Every missed window is growth history that cannot be recovered. |
+
+The schedule only *enqueues*; the worker executes. A slow job can never overlap
+its own schedule.
 
 ## Verifying a deployment
 
-1. `/login` returns 200 and `/studio` returns a redirect when signed out.
-2. Sign in, open **Jobs**, press **Run ping** — it reaches `SUCCEEDED` within a
-   few seconds. That single check proves web → database → worker → database.
-3. Press **Run fail-test** and watch it go `FAILED` → `FAILED` → `DEAD` over
-   about ten seconds, then **Retry** it.
+1. `/login` returns 200; `/studio` redirects when signed out.
+2. Sign in → **Jobs** → **Run ping** reaches `SUCCEEDED` within a few seconds.
+   That one check proves web → database → worker → database.
+3. **Integrations** shows all three `CONNECTED`, with channel name, follower
+   count and podcast title — real values, not placeholders.
+4. **Dashboard** shows the next show from the cadence, with a countdown.
 
-If ping never leaves `PENDING`, the worker is not running: check the deployment
-logs for the `worker.start` line.
+If ping never leaves `PENDING`, the worker is not running — check the deployment
+log for `worker.start`. If the boot failed on migrations or a missing secret, the
+log says exactly which, and the app is deliberately not serving.
 
 ## Operational notes
 

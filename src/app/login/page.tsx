@@ -10,7 +10,7 @@ export default async function LoginPage() {
       <div className="w-full max-w-[380px]">
         <div className="mb-8">
           <div className="flex items-center gap-2.5 mb-4">
-            <span className="w-[3px] h-7 bg-[var(--color-signal-red)]" />
+            <span className="w-[3px] h-7 bg-[var(--color-brand-red)]" />
             <div>
               <div className="eyebrow">The Prather Point</div>
               <div className="display text-[20px]">STUDIO</div>

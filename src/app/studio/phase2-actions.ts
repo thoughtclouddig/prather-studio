@@ -1,0 +1,347 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { requirePermission, requireUser } from "@/lib/auth/require";
+import { createEpisode } from "@/lib/domain/create-episode";
+import {
+  candidatesForEpisode,
+  linkYouTubeVideo,
+  unlinkYouTubeVideo,
+} from "@/lib/domain/linkage";
+import { applyYouTubeUpdate } from "@/lib/domain/youtube-publish";
+import { disconnect, saveCredential } from "@/lib/integrations/credentials";
+import { verifyToken } from "@/lib/integrations/buzzsprout/client";
+import { testConnection } from "@/lib/integrations/rumble/observer";
+import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
+import { listRecentVideos } from "@/lib/integrations/youtube/client";
+import { enqueue } from "@/lib/queue/queue";
+import { fromShowInputValue } from "@/lib/format";
+import { extractVideoId } from "@/lib/integrations/youtube/video-id";
+import { db } from "@/db/client";
+import { episodes, type IntegrationProvider } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import type { ActionState } from "./actions";
+
+async function guarded(
+  fn: () => Promise<string | void>,
+  paths: string[],
+): Promise<ActionState> {
+  try {
+    const ok = await fn();
+    for (const p of paths) revalidatePath(p, "page");
+    return ok ? { ok } : {};
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+const episodePaths = (id: string) => [
+  "/studio",
+  "/studio/episodes",
+  `/studio/episodes/${id}`,
+  `/studio/episodes/${id}/review`,
+  "/studio/jobs",
+];
+
+/* ------------------------------------------------------------- episodes */
+
+export async function createEpisodeAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const user = await requirePermission("episode.create");
+
+  const workingTitle = String(formData.get("workingTitle") ?? "").trim();
+  const scheduledRaw = String(formData.get("scheduledAt") ?? "").trim();
+  const numberRaw = String(formData.get("episodeNumber") ?? "").trim();
+  const notes = String(formData.get("internalNotes") ?? "").trim();
+
+  let episodeId: string;
+  try {
+    const episode = await createEpisode(user, {
+      workingTitle,
+      scheduledAt: fromShowInputValue(scheduledRaw),
+      episodeNumber: numberRaw ? Number(numberRaw) : null,
+      internalNotes: notes || null,
+    });
+    episodeId = episode.id;
+  } catch (error) {
+    return { error: error instanceof Error ? error.message : String(error) };
+  }
+
+  revalidatePath("/studio", "page");
+  revalidatePath("/studio/episodes", "page");
+  redirect(`/studio/episodes/${episodeId}`);
+}
+
+/* -------------------------------------------------------- YouTube link */
+
+export async function linkYouTubeAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  const raw = String(formData.get("videoId") ?? "").trim();
+  const via = String(formData.get("via") ?? "manual") as "manual" | "candidate";
+
+  return guarded(async () => {
+    const user = await requirePermission("publication.intent");
+    const videoId = extractVideoId(raw);
+    if (!videoId) {
+      throw new Error(
+        "That does not look like a YouTube video ID or URL. Expected an 11-character ID.",
+      );
+    }
+    const { video } = await linkYouTubeVideo(user, episodeId, videoId, { via });
+    return `Linked to "${video.title}".`;
+  }, episodePaths(episodeId));
+}
+
+export async function unlinkYouTubeAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.intent");
+    await unlinkYouTubeVideo(user, episodeId);
+    return "Unlinked from YouTube.";
+  }, episodePaths(episodeId));
+}
+
+/** Live candidate lookup. Two quota units, and the operator is waiting. */
+export async function loadCandidates(episodeId: string) {
+  await requireUser();
+  const [episode] = await db
+    .select()
+    .from(episodes)
+    .where(eq(episodes.id, episodeId))
+    .limit(1);
+  if (!episode) throw new Error("Episode not found");
+
+  const videos = await listRecentVideos(25);
+  return candidatesForEpisode(episode, videos);
+}
+
+/* ------------------------------------------------------------ pipeline */
+
+export async function enqueueCaptionsAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+    await enqueue({
+      kind: "youtube.fetch_captions",
+      idempotencyKey: `youtube.fetch_captions:${episodeId}:${Date.now()}`,
+      episodeId,
+      maxAttempts: 3,
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+    return "Queued caption retrieval. It will package the episode automatically if it succeeds.";
+  }, episodePaths(episodeId));
+}
+
+export async function enqueuePackageAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+    await enqueue({
+      kind: "episode.package",
+      idempotencyKey: `episode.package:${episodeId}:${Date.now()}`,
+      episodeId,
+      maxAttempts: 2,
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+    return "Queued the content engine. Proposals will appear in Review.";
+  }, episodePaths(episodeId));
+}
+
+/* -------------------------------------------------------- YouTube write */
+
+/**
+ * Apply the metadata update.
+ *
+ * Runs synchronously on purpose: the fingerprint the operator confirmed must
+ * be checked against the remote state with no queue delay in between.
+ */
+export async function applyYouTubeUpdateAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  const fingerprint = String(formData.get("fingerprint") ?? "");
+  const acknowledgeDrift = formData.get("acknowledgeDrift") === "on";
+
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+    const { video } = await applyYouTubeUpdate(user, episodeId, fingerprint, {
+      acknowledgeDrift,
+    });
+    // Read back from YouTube, so success means "verified", not "no error".
+    return `YouTube updated and verified. Title now reads "${video.title}".`;
+  }, episodePaths(episodeId));
+}
+
+/* -------------------------------------------------------- integrations */
+
+export async function connectRumbleAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const entered = String(formData.get("apiUrl") ?? "").trim();
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+
+    // Accept either the whole URL or just the key — Rumble encodes the user id
+    // inside the key, so the URL reconstructs exactly. Refuse an RTMP ingest
+    // URL by name: that is the encoder's destination, not a data source.
+    const input = normalizeRumbleInput(entered);
+    if (input.kind === "rtmp" || input.kind === "unknown") {
+      throw new Error(input.reason);
+    }
+    const apiUrl = input.apiUrl;
+
+    // Prove it works before storing it.
+    const observation = await testConnection(apiUrl);
+    await saveCredential({
+      provider: "RUMBLE",
+      kind: "URL_SECRET",
+      payload: { apiUrl },
+      accountLabel:
+        observation.followersTotal !== null
+          ? `${observation.followersTotal.toLocaleString()} followers`
+          : "Live Stream API",
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+    return observation.liveNow
+      ? `Connected. Rumble is live right now: "${observation.liveNow.title}".`
+      : "Connected. Rumble reports no stream live at the moment.";
+  }, ["/studio/integrations", "/studio"]);
+}
+
+export async function disconnectIntegrationAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const provider = String(formData.get("provider")) as IntegrationProvider;
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    await disconnect(user, provider);
+    return `${provider} disconnected.`;
+  }, ["/studio/integrations", "/studio"]);
+}
+
+export async function testIntegrationsAction(
+  _prev: ActionState,
+  _formData: FormData,
+): Promise<ActionState> {
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    await enqueue({
+      kind: "integration.health_check",
+      idempotencyKey: `integration.health_check:${Date.now()}`,
+      maxAttempts: 1,
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+    return "Health check queued.";
+  }, ["/studio/integrations", "/studio/jobs"]);
+}
+
+export async function pollRumbleNowAction(
+  _prev: ActionState,
+  _formData: FormData,
+): Promise<ActionState> {
+  return guarded(async () => {
+    const user = await requirePermission("job.retry");
+    await enqueue({
+      kind: "rumble.poll_live",
+      idempotencyKey: `rumble.poll_live:${Date.now()}`,
+      maxAttempts: 1,
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+    return "Rumble poll queued.";
+  }, ["/studio/integrations", "/studio/jobs", "/studio"]);
+}
+
+/* --------------------------------------------------------------- Buzzsprout */
+
+/**
+ * Connect Buzzsprout.
+ *
+ * The token is verified before it is stored — `GET /api/podcasts.json` is the
+ * one call that needs no podcast id, so it proves the credential and discovers
+ * what it points at in a single request. A token that cannot reach a podcast
+ * is not saved.
+ *
+ * The token never leaves the server, is never rendered back, and is stored
+ * AES-256-GCM encrypted like every other provider credential.
+ */
+export async function connectBuzzsproutAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const apiToken = String(formData.get("apiToken") ?? "").trim();
+  const requestedPodcastId = String(formData.get("podcastId") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!apiToken) throw new Error("Paste the Buzzsprout API token.");
+
+    const { podcasts } = await verifyToken(apiToken);
+    if (podcasts.length === 0) {
+      throw new Error(
+        "That token is valid but reaches no podcasts. Check it was copied from the " +
+          "right Buzzsprout account.",
+      );
+    }
+
+    const chosen = requestedPodcastId
+      ? podcasts.find((p) => String(p.id) === requestedPodcastId)
+      : podcasts.length === 1
+        ? podcasts[0]
+        : podcasts.find((p) => String(p.id) === "1762960");
+
+    if (!chosen) {
+      throw new Error(
+        `This token reaches ${podcasts.length} podcasts (` +
+          podcasts.map((p) => `${p.id} ${p.title}`).join(", ") +
+          "). Enter the podcast ID to say which one.",
+      );
+    }
+
+    await saveCredential({
+      provider: "BUZZSPROUT",
+      kind: "API_KEY",
+      payload: { apiToken, podcastId: String(chosen.id) },
+      accountLabel: chosen.title,
+      accountExternalId: String(chosen.id),
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return `Connected to "${chosen.title}" (podcast ${chosen.id}).`;
+  }, ["/studio/integrations", "/studio"]);
+}
+
+/** Read recent Buzzsprout episodes. Read-only: nothing is created or changed. */
+export async function syncBuzzsproutAction(
+  _prev?: ActionState,
+): Promise<ActionState> {
+  return guarded(async () => {
+    await requirePermission("integration.configure");
+    const { enqueue } = await import("@/lib/queue/queue");
+    await enqueue({
+      kind: "buzzsprout.sync_recent",
+      idempotencyKey: `buzzsprout.sync_recent:${Date.now()}`,
+      maxAttempts: 2,
+    });
+    return "Reading recent episodes from Buzzsprout.";
+  }, ["/studio/integrations"]);
+}
