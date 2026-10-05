@@ -14,15 +14,33 @@ run = "npm run dev"
 
 [nix]
 channel = "stable-24_11"
+packages = ["psmisc"]
 
 [deployment]
 build = ["npm", "run", "build"]
 run = ["npm", "run", "start:production"]
 deploymentTarget = "vm"
+ignorePorts = false
 
 [[ports]]
 localPort = 3000
 externalPort = 80
+
+[[ports]]
+localPort = 8080
+externalPort = 8080
+
+[[ports]]
+localPort = 8081
+externalPort = 8081
+
+[[ports]]
+localPort = 19914
+externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
 
 # NODE_ENV is deliberately NOT set here.
 #
