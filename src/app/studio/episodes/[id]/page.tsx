@@ -468,6 +468,7 @@ export default async function EpisodeWorkspace({
               slug: slugFor(episode.approvedTitle ?? episode.workingTitle),
             })}
             hasHeadline={!!episode.approvedTitle}
+            youtubeLinked={!!youtubePub?.externalId}
             existing={images.map((i) => ({
               kind: i.kind,
               id: i.id,
