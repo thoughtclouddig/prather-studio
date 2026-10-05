@@ -20,12 +20,13 @@ import { testConnection } from "@/lib/integrations/rumble/observer";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
 import { listRecentVideos } from "@/lib/integrations/youtube/client";
 import { PROMPT_VERSION } from "@/lib/content/package";
+import { recordActivity } from "@/lib/domain/activity";
 import { enqueue } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
 import { extractVideoId } from "@/lib/integrations/youtube/video-id";
 import { db } from "@/db/client";
-import { episodes, type IntegrationProvider, episodeTranscripts} from "@/db/schema";
-import { eq, desc} from "drizzle-orm";
+import { episodes, type IntegrationProvider, episodeTranscripts, episodeContentDrafts} from "@/db/schema";
+import { and, desc, eq, ne } from "drizzle-orm";
 import type { ActionState } from "./actions";
 
 async function guarded(
@@ -184,6 +185,84 @@ export async function enqueuePackageAction(
       actor: { kind: "user", id: user.id, name: user.name },
     });
     return "Queued the content engine. Proposals will appear in Review.";
+  }, episodePaths(episodeId));
+}
+
+/**
+ * Discard every draft for an episode and generate a fresh package.
+ *
+ * Exists for one situation, which actually happened: two packaging runs left
+ * two live sets of every field and an operator approved across both of them.
+ * The ordinary re-run only retires PROPOSED drafts — an APPROVED draft is a
+ * human decision and is never discarded by a machine — so there was no way out
+ * of that state from the interface at all.
+ *
+ * This is the explicit, operator-initiated way out. It is deliberately
+ * separate from RUN CONTENT ENGINE and deliberately destructive: it supersedes
+ * APPROVED drafts too, and clears the episode's approved title, because
+ * leaving a title behind that no longer has a draft supporting it is exactly
+ * the kind of orphaned state that is hard to reason about later.
+ *
+ * Nothing is deleted. SUPERSEDED drafts remain as history.
+ */
+export async function regenerateContentAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+
+    const [transcript] = await db
+      .select({ id: episodeTranscripts.id })
+      .from(episodeTranscripts)
+      .where(eq(episodeTranscripts.episodeId, episodeId))
+      .orderBy(desc(episodeTranscripts.createdAt))
+      .limit(1);
+
+    if (!transcript) {
+      throw new Error("There is no transcript to package. Retrieve it first.");
+    }
+
+    const cleared = await db
+      .update(episodeContentDrafts)
+      .set({ state: "SUPERSEDED" })
+      .where(
+        and(
+          eq(episodeContentDrafts.episodeId, episodeId),
+          ne(episodeContentDrafts.state, "SUPERSEDED"),
+        ),
+      )
+      .returning({ id: episodeContentDrafts.id });
+
+    // The approved title came from a draft that no longer stands.
+    await db
+      .update(episodes)
+      .set({ approvedTitle: null, updatedAt: new Date() })
+      .where(eq(episodes.id, episodeId));
+
+    await recordActivity({
+      actor: { kind: "user", id: user.id, name: user.name },
+      verb: "episode.content_cleared",
+      subjectType: "episode",
+      subjectId: episodeId,
+      episodeId,
+      summary: `Cleared ${cleared.length} draft(s) and queued a fresh package`,
+    });
+
+    // The deterministic key would be a no-op here, because the identical job
+    // already succeeded. A regeneration is a genuinely new request, so it
+    // carries a counter — which is also what makes it auditable.
+    await enqueue({
+      kind: "episode.package",
+      idempotencyKey:
+        `episode.package:${episodeId}:${transcript.id}:${PROMPT_VERSION}:regen:${Date.now()}`,
+      episodeId,
+      maxAttempts: 2,
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+
+    return `Cleared ${cleared.length} draft(s). A fresh package is queued.`;
   }, episodePaths(episodeId));
 }
 

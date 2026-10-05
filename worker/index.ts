@@ -12,6 +12,7 @@ import "dotenv/config";
 import { sql } from "../src/db/client";
 import { claim, defer, fail, JobDeferred, reclaimStale, succeed } from "../src/lib/queue/queue";
 import { getHandler } from "../src/lib/queue/handlers";
+import { runDueTasks } from "./schedule";
 import {
   assertWorkerAllowed,
   beat,
@@ -96,8 +97,19 @@ async function main() {
   let sinceReclaim = Date.now();
   let sinceBeat = 0;
   let claimedSinceBeat = 0;
+
+  // Fire the schedule once on boot so a restart does not leave a gap until the
+  // next interval comes round.
+  const booted = await runDueTasks();
+  if (booted.length > 0) log("schedule.enqueued", { kinds: booted, onBoot: true });
+
   while (running) {
     try {
+      // Enqueue anything due BEFORE claiming, so work scheduled this tick is
+      // available to this same tick rather than waiting for the next one.
+      const due = await runDueTasks();
+      if (due.length > 0) log("schedule.enqueued", { kinds: due });
+
       const processed = await tick();
       claimedSinceBeat += processed;
       if (Date.now() - sinceReclaim > 60_000) {
