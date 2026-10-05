@@ -42,7 +42,13 @@ export interface ThumbnailRequest {
   guestName?: string | null;
   /** True when a guest photograph is passed as a reference image. */
   hasGuestPhoto?: boolean;
-  /** True when the logo file is passed as a reference image. */
+  /**
+   * True when the logo file is passed as a reference image.
+   *
+   * Off by default. The working process renders the logo from the written
+   * description alone, and a reference image biases the model toward
+   * reproducing that reference rather than composing the scene around it.
+   */
   hasLogoReference?: boolean;
   /** Operator steer on a regeneration — "darker", "lose the flag". */
   note?: string | null;
