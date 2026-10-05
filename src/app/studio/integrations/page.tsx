@@ -9,6 +9,7 @@ import { Panel, StateBadge } from "@/components/ui";
 import {
   ConnectBuzzsproutForm,
   ConnectRumbleForm,
+  ConnectWordPressForm,
   DisconnectButton,
   HealthCheckButton,
   PollRumbleButton,
@@ -24,25 +25,11 @@ export const dynamic = "force-dynamic";
  */
 const PENDING = [
   {
-    name: "Buzzsprout",
-    capability: "Episode create/update · audio · artwork · show notes",
-    maturity: "Medium",
-    detail:
-      "Token auth, documented episode endpoints. Future-dated published_at is the scheduling mechanism; that behaviour still needs one live confirmation.",
-  },
-  {
     name: "Mailchimp",
     capability: "Campaign draft · content · schedule · audience",
     maturity: "High",
     detail:
       "Already proven end to end in the prior Prather Brief app: POST /campaigns then PUT content then schedule. Audience 6f7bc677e9.",
-  },
-  {
-    name: "WordPress",
-    capability: "Interim publication target via REST",
-    maturity: "High",
-    detail:
-      "jeffreyprather.com keeps serving the public site. The Studio will push posts to it like any other platform, then retire it as a target.",
   },
   {
     name: "OpusClip",
@@ -95,6 +82,7 @@ export default async function IntegrationsPage({
   const youtube = byProvider.get("YOUTUBE" as IntegrationProvider);
   const rumble = byProvider.get("RUMBLE" as IntegrationProvider);
   const buzzsprout = byProvider.get("BUZZSPROUT" as IntegrationProvider);
+  const wordpress = byProvider.get("WORDPRESS" as IntegrationProvider);
   const canConfigure = can(user.role, "integration.configure");
 
   const rumbleObservation = rumble?.lastObservation as
@@ -364,6 +352,64 @@ export default async function IntegrationsPage({
             </>
           ) : canConfigure ? (
             <ConnectBuzzsproutForm />
+          ) : (
+            <p className="text-[11px] text-[var(--color-type-lo)]">
+              Only an OWNER can connect integrations.
+            </p>
+          )}
+        </div>
+      </Panel>
+
+      {/* ------------------------------------------------------- WORDPRESS */}
+      <Panel
+        eyebrow="WordPress"
+        title="The public site — drafts only, never published by the Studio"
+        actions={
+          <StateBadge
+            tone={HEALTH_TONE[wordpress?.health ?? "DISCONNECTED"]}
+            label={wordpress?.health ?? "Not connected"}
+          />
+        }
+      >
+        <div className="px-4 py-3.5 space-y-3">
+          <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed max-w-[86ch]">
+            jeffreyprather.com keeps serving the public site. The Studio writes the episode
+            post &mdash; Rumble embed, approved summary, chapters and the square thumbnail as
+            the featured image &mdash; and leaves it as a <strong>draft</strong>. Publishing
+            stays in WordPress with a human, because the public site is the one place an
+            accidental publish is immediately visible to the audience.
+          </p>
+
+          {wordpress ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <div className="eyebrow mb-1">Site</div>
+                  <div className="text-[13px] font-semibold">
+                    {wordpress.accountLabel ?? "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Author</div>
+                  <div className="mono">{wordpress.accountExternalId ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Last sync</div>
+                  <div className="mono">
+                    {wordpress.lastObservedAt ? relative(wordpress.lastObservedAt) : "never"}
+                  </div>
+                </div>
+              </div>
+
+              {wordpress.lastError && (
+                <p className="text-[12px] text-[var(--color-signal-red)]">
+                  {wordpress.lastError}
+                </p>
+              )}
+              {canConfigure && <DisconnectButton provider="WORDPRESS" />}
+            </>
+          ) : canConfigure ? (
+            <ConnectWordPressForm />
           ) : (
             <p className="text-[11px] text-[var(--color-type-lo)]">
               Only an OWNER can connect integrations.
