@@ -131,17 +131,28 @@ if (!b64) {
   process.exit(1);
 }
 
+// Fit to the exact delivered size, which is the thing the platforms demand and
+// the model cannot render directly.
+const { fitMaster, fitSquare, describe } = await import("../src/lib/images/fit.ts");
+const raw = Buffer.from(b64, "base64");
+const fitted = square ? await fitSquare(raw) : await fitMaster(raw);
+
 mkdirSync("thumbnails", { recursive: true });
 const slug = headline
   .toLowerCase()
   .replace(/[^a-z0-9]+/g, "-")
   .replace(/^-|-$/g, "")
   .slice(0, 48);
-const file = `thumbnails/${slug}-${square ? "1024x1024" : "1536x1024"}-${Date.now()}.png`;
-const bytes = Buffer.from(b64, "base64");
-writeFileSync(file, bytes);
+const stamp = Date.now();
+const rawFile = `thumbnails/${slug}-RAW-${stamp}.png`;
+const outFile = `thumbnails/${slug}-${fitted.width}x${fitted.height}-${stamp}.jpg`;
+writeFileSync(rawFile, raw);
+writeFileSync(outFile, fitted.bytes);
+
+const rawInfo = await describe(raw);
 
 console.log(`  OK in ${seconds}s`);
-console.log(`  ${file}  (${Math.round(bytes.length / 1024)} KB)`);
+console.log(`  raw      ${rawInfo.width}x${rawInfo.height}  ${Math.round(raw.length / 1024)} KB  ${rawFile}`);
+console.log(`  DELIVERED ${fitted.width}x${fitted.height}  ${Math.round(fitted.bytes.length / 1024)} KB  @q${fitted.quality}  ${outFile}`);
 console.log(`  usage: ${JSON.stringify(body.usage ?? {})}`);
-console.log(`\n  Open it from Replit's file tree to judge it.\n`);
+console.log(`\n  Open the DELIVERED file from Replit's file tree — that is what ships.\n`);
