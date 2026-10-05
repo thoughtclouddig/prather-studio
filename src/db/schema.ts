@@ -853,6 +853,7 @@ export const episodeImages = pgTable(
 );
 
 export type EpisodeImage = typeof episodeImages.$inferSelect;
+export type EpisodeImageKind = (typeof episodeImageKind.enumValues)[number];
 
 export const showsRelations = relations(shows, ({ many }) => ({
   episodes: many(episodes),
