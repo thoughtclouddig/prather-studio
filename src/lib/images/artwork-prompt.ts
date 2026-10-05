@@ -81,6 +81,10 @@ export function buildMasterPrompt(request: ThumbnailRequest): string {
 • Keep important faces and objects large enough to read at thumbnail size.
 • Strong foreground / middle ground / background depth.
 • Avoid tiny decorative elements that will disappear at small sizes.
+• SAFE AREA: the frame is delivered at 1920x1080, so the top and bottom edges of
+  what you render WILL be trimmed. Keep the logo, the tagline, the headline and
+  any face or object that matters inside the central 84% vertically — well clear
+  of the top and bottom edges.
 • Do not change or paraphrase the supplied headline.
 • Spell every word correctly.`,
   );
