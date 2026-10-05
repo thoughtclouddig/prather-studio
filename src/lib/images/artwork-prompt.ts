@@ -50,6 +50,15 @@ export interface ThumbnailRequest {
    * reproducing that reference rather than composing the scene around it.
    */
   hasLogoReference?: boolean;
+  /**
+   * True when a previous finished thumbnail is passed as a style exemplar.
+   *
+   * This is what the working process actually relies on: ChatGPT has earlier
+   * thumbnails in the conversation and mirrors them. Prose describing a style
+   * is a far weaker signal than an example of it, which is why generations
+   * without a reference looked nothing like the weekly output.
+   */
+  hasStyleReference?: boolean;
   /** Operator steer on a regeneration — "darker", "lose the flag". */
   note?: string | null;
 }
@@ -69,7 +78,17 @@ export function buildMasterPrompt(request: ThumbnailRequest): string {
       `current-affairs broadcast.`,
   );
   parts.push(`EPISODE HEADLINE: "${request.headline}"`);
-  parts.push(REFERENCE_STYLE);
+  parts.push(
+    request.hasStyleReference
+      ? `A finished Prather Point thumbnail is supplied as a STYLE REFERENCE. Match it ` +
+        `closely: the same typographic treatment, the same distressed condensed uppercase ` +
+        `lettering, the same colour palette and contrast, the same logo placement and ` +
+        `scale, the same layout with type on the left and subject on the right, the same ` +
+        `cinematic grade and atmosphere. Do NOT copy its subject matter, its headline text ` +
+        `or its people — only its style and layout. The new image is about a different ` +
+        `episode.\n\n${REFERENCE_STYLE}`
+      : REFERENCE_STYLE,
+  );
 
   parts.push(
     `Include:
@@ -136,7 +155,13 @@ export function buildSquarePrompt(request: ThumbnailRequest): string {
       `SAME visual concept as the master thumbnail.`,
   );
   parts.push(`The episode is about: "${request.headline}"`);
-  parts.push(REFERENCE_STYLE);
+  parts.push(
+    request.hasStyleReference
+      ? `A finished Prather Point thumbnail is supplied as a STYLE REFERENCE. Match its ` +
+        `colour palette, contrast, grade and atmosphere — but NOT its subject matter and ` +
+        `NOT its typography, since this image carries no text at all.\n\n${REFERENCE_STYLE}`
+      : REFERENCE_STYLE,
+  );
 
   parts.push(
     `CRITICAL:

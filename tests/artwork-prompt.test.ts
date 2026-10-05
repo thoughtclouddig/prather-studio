@@ -73,3 +73,36 @@ describe("who appears", () => {
     }
   });
 });
+
+/**
+ * The gap between the API output and the weekly ChatGPT output was not the
+ * prose — it was that ChatGPT has previous thumbnails in the conversation and
+ * mirrors them. An example of a style is a far stronger signal than a
+ * description of one.
+ */
+describe("the style reference", () => {
+  const base = { headline: "Mike Adams on Data Center Dangers!" };
+
+  it("tells the model to match the reference's style", () => {
+    const p = buildMasterPrompt({ ...base, hasStyleReference: true });
+    expect(p).toMatch(/STYLE REFERENCE/);
+    expect(p).toMatch(/same typographic treatment/i);
+    expect(p).toMatch(/same logo placement/i);
+  });
+
+  /** Mirroring the style must not mean reusing the subject or the headline. */
+  it("forbids copying the reference's subject or text", () => {
+    const p = buildMasterPrompt({ ...base, hasStyleReference: true });
+    expect(p).toMatch(/Do NOT copy its subject matter, its headline text or its people/i);
+  });
+
+  it("asks the square to match the grade but not the typography", () => {
+    const p = buildSquarePrompt({ ...base, hasStyleReference: true });
+    expect(p).toMatch(/NOT its typography/i);
+    expect(p).toMatch(/no text at all/i);
+  });
+
+  it("says nothing about a reference when none is supplied", () => {
+    expect(buildMasterPrompt(base)).not.toMatch(/STYLE REFERENCE/);
+  });
+});

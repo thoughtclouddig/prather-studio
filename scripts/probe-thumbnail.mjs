@@ -55,6 +55,18 @@ const { buildMasterPrompt, buildSquarePrompt } = await import(
 
 const logoPath = path.join(process.cwd(), "public", "brand", "prather-point-logo.png");
 const hasLogo = useLogo && existsSync(logoPath);
+
+// The style reference is the missing piece, and the operator said so early:
+// "based off an example reference thumbnail that we created that it mirrors
+// every time". ChatGPT has previous thumbnails sitting in the conversation and
+// is doing style transfer from a real example. An API call has only prose
+// describing a style, which is why the first results were nothing like the
+// weekly ones. Passing a known-good thumbnail closes that gap.
+const referencePath = arg(
+  "reference",
+  path.join(process.cwd(), "public", "brand", "reference-thumbnail.jpg"),
+);
+const hasReference = !flag("no-reference") && existsSync(referencePath);
 const hasGuestPhoto = !!photoPath && existsSync(photoPath);
 
 if (photoPath && !hasGuestPhoto) {
@@ -62,7 +74,7 @@ if (photoPath && !hasGuestPhoto) {
   process.exit(1);
 }
 
-const request = { headline, guestName, hasGuestPhoto, hasLogoReference: hasLogo, note };
+const request = { headline, guestName, hasGuestPhoto, hasLogoReference: hasLogo, hasStyleReference: hasReference, note };
 const prompt = square ? buildSquarePrompt(request) : buildMasterPrompt(request);
 const size = square ? "1024x1024" : "1536x1024";
 
@@ -70,6 +82,7 @@ console.log(`\n  headline : ${headline}`);
 console.log(`  variant  : ${square ? "SQUARE (no text)" : "MASTER (logo + headline)"}`);
 console.log(`  guest    : ${guestName ?? "none"}${hasGuestPhoto ? " (photo supplied)" : ""}`);
 console.log(`  logo ref : ${hasLogo ? "yes" : "no"}`);
+console.log(`  style ref: ${hasReference ? path.basename(referencePath) : "NONE"}`);
 if (note) console.log(`  note     : ${note}`);
 console.log(`  size     : ${size}\n  generating…\n`);
 
@@ -79,7 +92,7 @@ let res;
 // With reference images the edits endpoint is required; without them,
 // generations. Passing the logo is what makes the model reproduce the real
 // mark rather than inventing something logo-shaped.
-if (hasLogo || hasGuestPhoto) {
+if (hasLogo || hasGuestPhoto || hasReference) {
   const form = new FormData();
   form.append("model", "gpt-image-1");
   form.append("prompt", prompt);
@@ -107,6 +120,14 @@ if (hasLogo || hasGuestPhoto) {
       "image[]",
       new Blob([readFileSync(logoPath)], { type: "image/png" }),
       "prather-point-logo.png",
+    );
+  }
+  // Last, so it reads as the style exemplar rather than the subject.
+  if (hasReference) {
+    form.append(
+      "image[]",
+      new Blob([readFileSync(referencePath)], { type: mimeOf(referencePath) }),
+      path.basename(referencePath),
     );
   }
   res = await fetch("https://api.openai.com/v1/images/edits", {
