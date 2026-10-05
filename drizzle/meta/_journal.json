@@ -57,6 +57,13 @@
       "when": 1789420870044,
       "tag": "0007_complex_magdalene",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1791237002998,
+      "tag": "0008_polite_random",
+      "breakpoints": true
     }
   ]
 }

@@ -15,6 +15,7 @@
  */
 import {
   boolean,
+  customType,
   index,
   integer,
   jsonb,
@@ -295,6 +296,12 @@ export const episodes = pgTable(
      * choosing and doing are different facts: the Studio knows the first for
      * certain and can only be told the second.
      */
+    /**
+     * The guest, when there is one. Jeff never appears in a thumbnail — only
+     * guests do — so this is what decides whether artwork is built around a
+     * person or around the topic.
+     */
+    guestName: text("guest_name"),
     preStreamAssetId: uuid("pre_stream_asset_id").references(
       () => preStreamAssets.id,
       { onDelete: "set null" },
@@ -776,6 +783,76 @@ export const workerHeartbeats = pgTable(
 );
 
 /* -------------------------------------------------------------- relations */
+
+/**
+ * Images belonging to an episode: an uploaded guest photo, generated artwork,
+ * and the composited thumbnails.
+ *
+ * ## Why the bytes live in Postgres
+ *
+ * Phase 0 established that the Replit filesystem does not survive a republish,
+ * and ruled that media must go to object storage or Postgres — never disk. At
+ * this volume Postgres is the right half of that choice: two shows a week, a
+ * handful of attempts each, a few megabytes apiece. It needs no new credential,
+ * no new provider, and it is backed up with everything else.
+ *
+ * If the volume ever changes that calculus, `bytes` is the only column that has
+ * to move.
+ *
+ * ## Attempts are kept, not overwritten
+ *
+ * "Re-run the graphic if it doesn't look right" is a first-class requirement,
+ * so a regeneration SUPERSEDES rather than replaces. The operator can look back
+ * at what was rejected, and the prompt that produced each one is stored beside
+ * it — otherwise "that one was better" is an unanswerable sentence.
+ */
+export const episodeImageKind = pgEnum("episode_image_kind", [
+  /** Uploaded by an operator. The guest's photo, used as a reference. */
+  "GUEST_PHOTO",
+  /** Generated scene, no text of any kind. The 1:1 companion IS this. */
+  "ARTWORK",
+  /** Artwork plus logo, tagline and headline. 1920x1080, for YouTube. */
+  "THUMBNAIL_16_9",
+  /** Square companion, no text. Buzzsprout artwork, WordPress featured image. */
+  "THUMBNAIL_1_1",
+]);
+
+export const episodeImageState = pgEnum("episode_image_state", [
+  "PROPOSED",
+  "ACCEPTED",
+  "SUPERSEDED",
+]);
+
+export const episodeImages = pgTable(
+  "episode_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    episodeId: uuid("episode_id")
+      .notNull()
+      .references(() => episodes.id, { onDelete: "cascade" }),
+    kind: episodeImageKind("kind").notNull(),
+    state: episodeImageState("state").notNull().default("PROPOSED"),
+    contentType: text("content_type").notNull(),
+    bytes: customType<{ data: Buffer; driverData: Buffer }>({
+      dataType: () => "bytea",
+    })("bytes").notNull(),
+    byteSize: integer("byte_size").notNull(),
+    width: integer("width"),
+    height: integer("height"),
+    /** The exact prompt sent, so "that one was better" is answerable. */
+    prompt: text("prompt"),
+    model: text("model"),
+    /** Which ARTWORK a composited thumbnail was built from. */
+    derivedFromId: uuid("derived_from_id"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("episode_images_episode_idx").on(t.episodeId, t.kind),
+  ],
+);
+
+export type EpisodeImage = typeof episodeImages.$inferSelect;
 
 export const showsRelations = relations(shows, ({ many }) => ({
   episodes: many(episodes),
