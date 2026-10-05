@@ -12,15 +12,20 @@ import {
 import { applyYouTubeUpdate } from "@/lib/domain/youtube-publish";
 import { disconnect, saveCredential } from "@/lib/integrations/credentials";
 import { verifyToken } from "@/lib/integrations/buzzsprout/client";
+import {
+  normalizeSiteUrl,
+  verifyCredentials,
+} from "@/lib/integrations/wordpress/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
 import { listRecentVideos } from "@/lib/integrations/youtube/client";
+import { PROMPT_VERSION } from "@/lib/content/package";
 import { enqueue } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
 import { extractVideoId } from "@/lib/integrations/youtube/video-id";
 import { db } from "@/db/client";
-import { episodes, type IntegrationProvider } from "@/db/schema";
-import { eq } from "drizzle-orm";
+import { episodes, type IntegrationProvider, episodeTranscripts} from "@/db/schema";
+import { eq, desc} from "drizzle-orm";
 import type { ActionState } from "./actions";
 
 async function guarded(
@@ -151,9 +156,29 @@ export async function enqueuePackageAction(
   const episodeId = String(formData.get("episodeId"));
   return guarded(async () => {
     const user = await requirePermission("publication.enqueue");
+
+    // The key must match the one the transcript chain uses, or the two paths
+    // cannot deduplicate against each other. It used to carry Date.now(),
+    // which made every click unique by construction -- so pressing the button
+    // on an episode whose transcript had already triggered packaging produced
+    // a SECOND full set of drafts, and the review screen showed two of every
+    // field with no way to tell which was which.
+    const [transcript] = await db
+      .select({ id: episodeTranscripts.id })
+      .from(episodeTranscripts)
+      .where(eq(episodeTranscripts.episodeId, episodeId))
+      .orderBy(desc(episodeTranscripts.createdAt))
+      .limit(1);
+
+    if (!transcript) {
+      throw new Error(
+        "There is no transcript to package yet. Retrieve the transcript first.",
+      );
+    }
+
     await enqueue({
       kind: "episode.package",
-      idempotencyKey: `episode.package:${episodeId}:${Date.now()}`,
+      idempotencyKey: `episode.package:${episodeId}:${transcript.id}:${PROMPT_VERSION}`,
       episodeId,
       maxAttempts: 2,
       actor: { kind: "user", id: user.id, name: user.name },
@@ -327,6 +352,57 @@ export async function connectBuzzsproutAction(
     });
 
     return `Connected to "${chosen.title}" (podcast ${chosen.id}).`;
+  }, ["/studio/integrations", "/studio"]);
+}
+
+export async function connectWordPressAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const rawSite = String(formData.get("siteUrl") ?? "").trim();
+  const username = String(formData.get("username") ?? "").trim();
+  const applicationPassword = String(formData.get("applicationPassword") ?? "");
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+
+    const siteUrl = normalizeSiteUrl(rawSite || "https://jeffreyprather.com");
+    if (!siteUrl) throw new Error("That site address does not parse as a URL.");
+    if (!username) throw new Error("Enter the WordPress username.");
+    if (!applicationPassword.trim()) {
+      throw new Error("Paste the Application Password from your WordPress profile.");
+    }
+
+    // Verify before storing, and verify CAPABILITIES rather than just the
+    // login: a credential that authenticates but cannot upload media would
+    // fail later, while an episode is being published, which is the worst
+    // possible moment to find out.
+    const identity = await verifyCredentials({ siteUrl, username, applicationPassword });
+
+    if (!identity.canEditPosts) {
+      throw new Error(
+        `${identity.name} can sign in but cannot create posts on ${siteUrl}. ` +
+          "That user needs at least the Author role.",
+      );
+    }
+    if (!identity.canUploadFiles) {
+      throw new Error(
+        `${identity.name} can create posts but cannot upload files, so the ` +
+          "thumbnail could never be attached. That user needs upload permission.",
+      );
+    }
+
+    await saveCredential({
+      provider: "WORDPRESS",
+      kind: "API_KEY",
+      payload: { siteUrl, username, applicationPassword },
+      accountLabel: identity.siteName ?? siteUrl.replace(/^https?:\/\//, ""),
+      accountExternalId: String(identity.id),
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return `Connected to ${identity.siteName ?? siteUrl} as ${identity.name}. Posts are created as drafts.`;
   }, ["/studio/integrations", "/studio"]);
 }
 

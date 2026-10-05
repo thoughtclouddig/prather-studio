@@ -54,10 +54,15 @@ export default async function StudioLayout({
       <main className="flex-1 px-4 py-5 max-w-[1500px] w-full mx-auto">{children}</main>
 
       <footer className="border-t border-[var(--color-ink-200)] px-4 py-2.5">
+        {/* This line has to track reality. It said Buzzsprout and WordPress
+            had no adapter while both were connected and working, which is
+            exactly the kind of stale copy that teaches an operator to stop
+            reading the interface. */}
         <p className="mono text-[10px]">
-          PHASE 2 — YouTube and Rumble are real connections. Rumble is observed only.
-          Buzzsprout, Mailchimp, WordPress, OpusClip and Locals have no adapter yet;
-          their publish actions are simulated and labelled as such.
+          Real adapters: YouTube (read &amp; write), Rumble (observed only &mdash; no
+          upload, no metadata write), Buzzsprout, WordPress (drafts only). Mailchimp,
+          OpusClip and Locals have no adapter yet; their publish actions are simulated
+          and labelled as such.
         </p>
       </footer>
     </div>

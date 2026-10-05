@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   connectBuzzsproutAction,
   connectRumbleAction,
+  connectWordPressAction,
   disconnectIntegrationAction,
   pollRumbleNowAction,
   syncBuzzsproutAction,
@@ -152,6 +153,59 @@ export function ConnectBuzzsproutForm() {
         is verified against your account before it is saved, then stored encrypted and never
         displayed again. Leave the podcast ID blank and the Studio will use the one the token
         reaches.
+      </p>
+      <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ConnectWordPressForm() {
+  const [state, action] = useActionState(connectWordPressAction, undefined);
+  return (
+    <form action={action} className="space-y-2">
+      <label className="block">
+        <span className="eyebrow block mb-1.5">Site address</span>
+        <input
+          name="siteUrl"
+          type="text"
+          autoComplete="off"
+          defaultValue="https://jeffreyprather.com"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">WordPress username</span>
+        <input
+          name="username"
+          type="text"
+          required
+          autoComplete="off"
+          placeholder="the account the post is authored by"
+          className="field text-[12px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">Application password</span>
+        <input
+          name="applicationPassword"
+          type="password"
+          required
+          autoComplete="off"
+          placeholder="xxxx xxxx xxxx xxxx xxxx xxxx"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        Generate it at <span className="mono">/wp-admin/profile.php</span> &rarr; Application
+        Passwords. That is a separate credential from your login and can be revoked on its own.
+        It is checked against the site &mdash; including whether the user can upload media
+        &mdash; before anything is stored.
+      </p>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        <strong className="text-[var(--color-signal-amber)]">Not</strong> your WordPress login
+        password. Posts are always created as <strong>drafts</strong>; the Studio never
+        publishes to the public site.
       </p>
       <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
       <Feedback state={state} />

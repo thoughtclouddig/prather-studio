@@ -6,7 +6,7 @@
  */
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   episodeContentDrafts,
@@ -285,6 +285,28 @@ export async function writeDrafts(
       sortOrder: 60,
     },
   ];
+
+  // Retire the previous generation before writing this one.
+  //
+  // Without this, a second packaging run leaves TWO live sets of every field —
+  // two primary headlines, two sets of chapters, two sets of clip candidates —
+  // with nothing in the review screen to say which came from which run. The
+  // operator is then asked to approve every variant of everything, which is
+  // both confusing and a way to approve content generated from an older
+  // transcript.
+  //
+  // Only PROPOSED drafts are retired. An APPROVED draft is a human decision
+  // and is never silently discarded: it stays, and the staleness check marks
+  // it as needing re-review when the material beneath it changed.
+  await db
+    .update(episodeContentDrafts)
+    .set({ state: "SUPERSEDED" })
+    .where(
+      and(
+        eq(episodeContentDrafts.episodeId, episodeId),
+        eq(episodeContentDrafts.state, "PROPOSED"),
+      ),
+    );
 
   await db.insert(episodeContentDrafts).values(rows);
   return rows.length;

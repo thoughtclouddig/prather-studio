@@ -507,3 +507,63 @@ required for API access is not stated in the reference — the Phase 0 audit not
 confirmed". A Prather Point broadcast runs about 85 minutes, which is long for a
 clipping service, so **the first real submission is the test that matters.**
 Nothing here is proven against the account until one episode has been through it.
+
+---
+
+## 9. WordPress and the Rumble embed — both verified
+
+Checked 2026-10-05 against the live site and a real episode.
+
+### WordPress accepts writes, with no plugin needed
+
+`GET https://jeffreyprather.com/wp-json/` advertises:
+
+```json
+"authentication": { "application-passwords": {
+  "endpoints": { "authorization": ".../wp-admin/authorize-application.php" } } }
+```
+
+`POST /wp/v2/posts` and `POST /wp/v2/media` are both present. So the publication
+path is the stock REST API with an **Application Password** — native to
+WordPress since 5.6, revocable on its own, and separate from the account's real
+login. No JWT plugin, no OAuth plugin, nothing new installed on a site that is
+already carrying Elementor, Jetpack, WooCommerce, Yoast and a WP Engine cache
+plugin.
+
+The post is created as a **draft**. Nothing publishes without a human, same rule
+as every other platform.
+
+### Rumble oEmbed works, and the obvious shortcut would have been wrong
+
+`GET https://rumble.com/api/Media/oembed.json?url=<episode url>` → 200:
+
+| field | value |
+|---|---|
+| `type` | `video` |
+| `title` | Iraq Israeli False Flag War Just Ended — Did Another Just Begin? |
+| `author_name` | The Prather Point |
+| `duration` | `4782` |
+| `thumbnail_url` | a `hugh.cdn.rumble.cloud` still |
+| `html` | `<iframe src="https://rumble.com/embed/v7e2ee2/" …>` |
+
+**The page slug and the embed id are different strings.** The episode lives at
+`/v7g8rbk-iraq-israeli-false-flag-war….html`, but the player is
+`/embed/v7e2ee2/`. Constructing an iframe from the page URL — the obvious
+shortcut — produces a dead embed. oEmbed is the only correct path.
+
+`duration` is a bonus. It is the same kind of key the Buzzsprout matcher uses
+(§4), so a pasted Rumble URL can be checked against the YouTube broadcast's
+length and a wrong paste caught before it reaches a post.
+
+### The one thing still unsolved: learning the URL automatically
+
+The Live Stream API reports a stream's `id` while it is live, but Phase 0
+established there is **no VOD listing**, and the ids above show that a stream id
+would not be an embed id in any case. Whether anything observed during a
+broadcast maps to the finished video's URL is **untested, and cannot be tested
+until a real broadcast runs**.
+
+So the adapter takes the Rumble URL as an operator-supplied field, verified
+against duration, and attempts automatic discovery separately. One paste, with
+everything downstream automatic — the same shape as the audio step (§7), and for
+the same reason: the provider does not expose what we would need.
