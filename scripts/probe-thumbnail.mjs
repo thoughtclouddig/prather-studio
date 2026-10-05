@@ -82,12 +82,28 @@ if (hasLogo || hasGuestPhoto) {
   form.append("size", size);
   form.append("quality", "high");
   form.append("n", "1");
+  // The Blob MUST carry a type. Without it the browser-standard default is
+  // application/octet-stream, which the API rejects outright — and the error
+  // names the file index rather than the cause, so it reads like a bad file.
+  const mimeOf = (file) =>
+    /\.png$/i.test(file) ? "image/png"
+    : /\.webp$/i.test(file) ? "image/webp"
+    : "image/jpeg";
+
   if (hasGuestPhoto) {
     const bytes = readFileSync(photoPath);
-    form.append("image[]", new Blob([bytes]), path.basename(photoPath));
+    form.append(
+      "image[]",
+      new Blob([bytes], { type: mimeOf(photoPath) }),
+      path.basename(photoPath),
+    );
   }
   if (hasLogo) {
-    form.append("image[]", new Blob([readFileSync(logoPath)]), "prather-point-logo.png");
+    form.append(
+      "image[]",
+      new Blob([readFileSync(logoPath)], { type: "image/png" }),
+      "prather-point-logo.png",
+    );
   }
   res = await fetch("https://api.openai.com/v1/images/edits", {
     method: "POST",
