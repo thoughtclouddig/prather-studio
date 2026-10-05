@@ -1,76 +1,75 @@
 import { describe, expect, it } from "vitest";
-import { buildArtworkPrompt } from "@/lib/images/artwork-prompt";
+import { buildMasterPrompt, buildSquarePrompt } from "@/lib/images/artwork-prompt";
 
-const base = { headline: "Iraq Israeli False Flag War Just Ended", aspect: "16:9" } as const;
+const base = { headline: "Mike Adams on Data Center Dangers!" };
 
-describe("the no-text rule", () => {
+describe("the master prompt", () => {
   /**
-   * The working hand-written prompt contained "Spell every word correctly",
-   * which existed because image models misspell. We removed the problem rather
-   * than the symptom: the model paints, the Studio sets type.
+   * The headline is rendered BY the model, exactly as supplied. An earlier
+   * version stripped the typography instructions and composited type instead;
+   * the result had none of the distressed weight the real thumbnails carry, so
+   * the working prompt was restored.
    */
-  it("forbids text in every variant", () => {
-    for (const aspect of ["16:9", "1:1"] as const) {
-      for (const guest of [null, "Mike Adams"]) {
-        const p = buildArtworkPrompt({ ...base, aspect, guestName: guest });
-        expect(p).toMatch(/NO TEXT OF ANY KIND/i);
-        expect(p).toMatch(/no logo/i);
-        expect(p).toMatch(/no watermark/i);
-      }
-    }
+  it("carries the headline verbatim and forbids paraphrase", () => {
+    const p = buildMasterPrompt(base);
+    expect(p).toContain(base.headline);
+    expect(p).toMatch(/Do not change or paraphrase the supplied headline/i);
+    expect(p).toMatch(/Spell every word correctly/i);
   });
 
-  it("never asks the model to render the headline", () => {
-    const p = buildArtworkPrompt(base);
-    // The headline informs the scene, but must not be given as copy to set.
-    expect(p).not.toMatch(/render the headline|headline typography|set the headline/i);
+  it("asks for the logo, tagline and the house style", () => {
+    const p = buildMasterPrompt(base);
+    expect(p).toMatch(/Prather Point logo in the upper-left/i);
+    expect(p).toContain("FREEDOM IS TAKEN");
+    expect(p).toMatch(/distressed/i);
+    expect(p).toMatch(/theatrical political thriller/i);
+  });
+
+  it("tells the model to reproduce a supplied logo rather than redraw it", () => {
+    const p = buildMasterPrompt({ ...base, hasLogoReference: true });
+    expect(p).toMatch(/do not redraw, restyle or re-letter/i);
+  });
+});
+
+describe("the square companion", () => {
+  it("forbids text of any kind", () => {
+    const p = buildSquarePrompt(base);
+    expect(p).toMatch(/NO headline/);
+    expect(p).toMatch(/NO typography/);
+    expect(p).toMatch(/NO logo/);
+    expect(p).toMatch(/No letters, no numbers/i);
+  });
+
+  it("requires the same artwork, recomposed rather than cropped", () => {
+    const p = buildSquarePrompt(base);
+    expect(p).toMatch(/SAME subjects/);
+    expect(p).toMatch(/rather than simply cropping/i);
   });
 });
 
 describe("who appears", () => {
-  /** Jeff is never in a thumbnail — only guests are. */
+  /** Jeff is never depicted — only guests are. */
   it("depicts nobody when there is no guest", () => {
-    const p = buildArtworkPrompt(base);
-    expect(p).toMatch(/no guest/i);
-    expect(p).toMatch(/not depict any identifiable real person/i);
+    for (const p of [buildMasterPrompt(base), buildSquarePrompt(base)]) {
+      expect(p).toMatch(/not depict any identifiable real person/i);
+    }
   });
 
-  it("uses the reference photo when one was uploaded", () => {
-    const p = buildArtworkPrompt({ ...base, guestName: "Mike Adams", hasGuestPhoto: true });
+  it("uses the reference photograph when one was uploaded", () => {
+    const p = buildMasterPrompt({ ...base, guestName: "Mike Adams", hasGuestPhoto: true });
     expect(p).toMatch(/reference photograph/i);
     expect(p).toMatch(/same face/i);
   });
 
-  /**
-   * A named guest with no photo must NOT be invented. A wrong likeness of a
-   * real person is worse than no likeness.
-   */
+  /** A wrong likeness of a real person is worse than no likeness. */
   it("refuses to invent a likeness when no photo was supplied", () => {
-    const p = buildArtworkPrompt({ ...base, guestName: "Mike Adams", hasGuestPhoto: false });
-    expect(p).toMatch(/do NOT attempt to depict them/i);
-    expect(p).toMatch(/invented likeness/i);
-  });
-});
-
-describe("composition", () => {
-  /** The left third stays quiet because the headline lands there. */
-  it("reserves the left of the 16:9 frame for type", () => {
-    const p = buildArtworkPrompt({ ...base, aspect: "16:9" });
-    expect(p).toMatch(/LEFT 40-45%/);
-    expect(p).toMatch(/visually calm/i);
+    const p = buildMasterPrompt({ ...base, guestName: "Mike Adams", hasGuestPhoto: false });
+    expect(p).toMatch(/Do NOT invent their likeness/i);
   });
 
-  it("asks the square to be recomposed rather than cropped", () => {
-    const p = buildArtworkPrompt({ ...base, aspect: "1:1" });
-    expect(p).toMatch(/rather than cropping/i);
-  });
-
-  it("carries the operator's regeneration note", () => {
-    const p = buildArtworkPrompt({ ...base, note: "darker, lose the flag" });
-    expect(p).toContain("darker, lose the flag");
-  });
-
-  it("includes the headline as subject matter", () => {
-    expect(buildArtworkPrompt(base)).toContain(base.headline);
+  it("carries a regeneration note into both prompts", () => {
+    for (const build of [buildMasterPrompt, buildSquarePrompt]) {
+      expect(build({ ...base, note: "darker, lose the flag" })).toContain("darker, lose the flag");
+    }
   });
 });
