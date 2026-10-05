@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { episodeContentDrafts, episodes, type User } from "@/db/schema";
 import { approveDraft, editAndApproveDraft, rejectDraft } from "@/lib/domain/drafts";
@@ -116,5 +116,67 @@ describe("content approval", () => {
     const approved = await approveDraft(editor, draft.id);
     expect(approved.state).toBe("APPROVED");
     expect(AuthorizationError.name).toBe("AuthorizationError");
+  });
+});
+
+/**
+ * The reported symptom: "two primary headlines, a million alternate headlines,
+ * two sets of chapters, two sets of clip candidates" — the review screen asking
+ * for approval of every variant of everything.
+ *
+ * Cause: the manual RUN CONTENT ENGINE button built its idempotency key with
+ * Date.now(), so it could never match the key the transcript chain uses. Both
+ * paths ran, and nothing retired the first generation.
+ */
+describe("a second packaging run replaces the first", () => {
+  /** Mirrors what package.ts does before inserting a new generation. */
+  async function retirePrevious() {
+    await db
+      .update(episodeContentDrafts)
+      .set({ state: "SUPERSEDED" })
+      .where(
+        and(
+          eq(episodeContentDrafts.episodeId, episodeId),
+          eq(episodeContentDrafts.state, "PROPOSED"),
+        ),
+      );
+  }
+
+  const live = async () =>
+    (
+      await db
+        .select()
+        .from(episodeContentDrafts)
+        .where(eq(episodeContentDrafts.episodeId, episodeId))
+    ).filter((d) => d.state !== "SUPERSEDED");
+
+  it("retires PROPOSED drafts from the previous run", async () => {
+    await seedDraft("primary_headline", "First run headline");
+    await seedDraft("chapters", "0:00 First");
+
+    await retirePrevious();
+    await seedDraft("primary_headline", "Second run headline");
+    await seedDraft("chapters", "0:00 Second");
+
+    const rows = await live();
+    const headlines = rows.filter((d) => d.field === "primary_headline");
+    expect(headlines).toHaveLength(1);
+    expect(headlines[0]?.value).toBe("Second run headline");
+    expect(rows.filter((d) => d.field === "chapters")).toHaveLength(1);
+  });
+
+  /** A human decision is never silently discarded by a machine re-run. */
+  it("leaves an APPROVED draft alone", async () => {
+    const draft = await seedDraft("primary_headline", "Approved one");
+    await approveDraft(owner, draft.id);
+
+    await retirePrevious();
+    await seedDraft("primary_headline", "New proposal");
+
+    const approved = (await live()).filter(
+      (d) => d.field === "primary_headline" && d.state === "APPROVED",
+    );
+    expect(approved).toHaveLength(1);
+    expect(approved[0]?.value).toBe("Approved one");
   });
 });
