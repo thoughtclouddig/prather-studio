@@ -10,7 +10,7 @@
  *   npm run probe:thumbnail -- --headline "..." --guest "Mike Adams" --photo ./guest.jpg
  *   npm run probe:thumbnail -- --headline "..." --note "darker, more smoke"
  *   npm run probe:thumbnail -- --headline "..." --square
- *   npm run probe:thumbnail -- --headline "..." --no-logo
+ *   npm run probe:thumbnail -- --headline "..." --logo        (pass the logo as a reference)
  *
  * Writes into ./thumbnails/ so the file is visible in Replit's file tree and
  * can be opened or downloaded directly.
@@ -35,7 +35,11 @@ const guestName = arg("guest");
 const photoPath = arg("photo");
 const note = arg("note");
 const square = flag("square");
-const useLogo = !flag("no-logo");
+// The logo is NOT passed as a reference by default. The working ChatGPT
+// process renders it from the written description alone, and a reference image
+// pulls the model toward reproducing the reference rather than composing the
+// scene. --logo opts in for comparison.
+const useLogo = flag("logo");
 
 const key = process.env.OPENAI_API_KEY?.trim();
 if (!key) {
