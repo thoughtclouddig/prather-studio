@@ -50,7 +50,14 @@ export function authorizationUrl(state: string): string {
     // Google omits the refresh token on re-authorization and the connection
     // silently becomes unrenewable an hour later.
     access_type: "offline",
-    prompt: "consent",
+    // `select_account` forces the account chooser even when a Google session
+    // already exists. Without it Google silently reuses whoever is signed in,
+    // and the first real connection attached the operator's OWN channel
+    // instead of the show's — the browser was logged into a different Google
+    // account and never offered a choice. Connecting the wrong channel is not
+    // a visible failure; it succeeds, and the mistake only surfaces later when
+    // video matching returns somebody else's uploads.
+    prompt: "select_account consent",
     include_granted_scopes: "true",
     state,
   });
