@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   enqueueCaptionsAction,
   enqueuePackageAction,
+  regenerateContentAction,
   unlinkYouTubeAction,
 } from "@/app/studio/phase2-actions";
 
@@ -86,6 +87,49 @@ export function RunPackageButton({
         title={disabled ? "A transcript is required first" : undefined}
       >
         {hasDrafts ? "Re-run content engine" : "Run content engine"}
+      </Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+/**
+ * Discard every draft and start the package over.
+ *
+ * Separate from "Re-run content engine", which only retires PROPOSED drafts —
+ * an APPROVED draft is a human decision and is never discarded by a machine.
+ * That left no way out of the state two packaging runs created, where
+ * approvals ended up spread across two sets of everything. This is the
+ * explicit, operator-initiated exit, and it asks first because it throws away
+ * approvals.
+ */
+export function RegenerateContentButton({
+  episodeId,
+  disabled,
+}: {
+  episodeId: string;
+  disabled: boolean;
+}) {
+  const [state, action] = useActionState(regenerateContentAction, undefined);
+  return (
+    <form
+      action={action}
+      className="inline-flex flex-col items-start"
+      onSubmit={(event) => {
+        if (
+          !window.confirm(
+            "Discard EVERY draft for this episode, including approved ones, and " +
+              "generate a fresh package?\n\nNothing is deleted — the old drafts stay " +
+              "as history — but your approvals will have to be made again.",
+          )
+        ) {
+          event.preventDefault();
+        }
+      }}
+    >
+      <input type="hidden" name="episodeId" value={episodeId} />
+      <Submit className="btn btn-xs btn-reject" disabled={disabled}>
+        Clear &amp; regenerate
       </Submit>
       <Feedback state={state} />
     </form>

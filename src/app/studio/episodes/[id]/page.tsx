@@ -30,7 +30,12 @@ import { latestTranscript } from "@/lib/domain/transcripts";
 import { getIntegration } from "@/lib/integrations/credentials";
 import { formatTimestamp } from "@/lib/transcripts/parse";
 import { DraftCard, EpisodeForm, PublicationRow } from "./parts";
-import { FetchCaptionsButton, RunPackageButton, UnlinkYouTubeButton } from "./pipeline";
+import {
+  FetchCaptionsButton,
+  RegenerateContentButton,
+  RunPackageButton,
+  UnlinkYouTubeButton,
+} from "./pipeline";
 
 /**
  * Platforms with a real adapter as of Phase 3.
@@ -268,11 +273,19 @@ export default async function EpisodeWorkspace({
               </td>
               <td className="align-top text-right">
                 {canEdit && (
-                  <RunPackageButton
-                    episodeId={episode.id}
-                    disabled={!transcript}
-                    hasDrafts={hasDrafts}
-                  />
+                  <div className="inline-flex flex-col items-end gap-1.5">
+                    <RunPackageButton
+                      episodeId={episode.id}
+                      disabled={!transcript}
+                      hasDrafts={hasDrafts}
+                    />
+                    {hasDrafts && (
+                      <RegenerateContentButton
+                        episodeId={episode.id}
+                        disabled={!transcript}
+                      />
+                    )}
+                  </div>
                 )}
               </td>
             </tr>
