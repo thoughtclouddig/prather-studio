@@ -119,10 +119,18 @@ export function buildArtworkPrompt(request: ArtworkRequest): string {
   return parts.join("\n\n");
 }
 
-/** Pixel dimensions per aspect. 16:9 is YouTube's thumbnail spec. */
+/**
+ * What we ASK OpenAI for, and what we end up with.
+ *
+ * gpt-image-1 renders 1024x1024, 1536x1024 or 1024x1536. None of those is 16:9,
+ * so a landscape frame is generated at 3:2 and cropped to 16:9 when composited.
+ * The prompt keeps the left 40-45% quiet and the subject centre-right, so a
+ * centred vertical crop loses sky and floor rather than anything that matters —
+ * but the crop is real and anyone changing these numbers should know it exists.
+ */
 export const ARTWORK_SIZES = {
-  "16:9": { width: 1536, height: 864 },
-  "1:1": { width: 1024, height: 1024 },
+  "16:9": { request: "1536x1024", width: 1536, height: 1024, cropTo: 864 },
+  "1:1": { request: "1024x1024", width: 1024, height: 1024, cropTo: null },
 } as const;
 
 /** What YouTube accepts: 1280x720 minimum, under 2 MB. We render at 1920x1080. */
