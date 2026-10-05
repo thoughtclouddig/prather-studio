@@ -30,7 +30,8 @@
     "bootstrap": "npm run bootstrap:show && npm run bootstrap:owner",
     "stop": "fuser -k 3000/tcp 2>/dev/null; pkill -f \"next start\"; pkill -f \"worker/index.ts\"; sleep 2; echo stopped",
     "restart": "npm run stop; npm run start:production",
-    "probe:images": "node scripts/probe-image-api.mjs"
+    "probe:images": "node scripts/probe-image-api.mjs",
+    "probe:thumbnail": "tsx --tsconfig worker/tsconfig.json scripts/probe-thumbnail.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",
@@ -39,7 +40,9 @@
     "postgres": "^3.4.9",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
+    "satori": "^0.35.0",
     "server-only": "^0.0.1",
+    "sharp": "^0.35.5",
     "tsx": "^4.20.0"
   },
   "devDependencies": {
