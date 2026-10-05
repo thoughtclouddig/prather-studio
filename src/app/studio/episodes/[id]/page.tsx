@@ -19,7 +19,12 @@ import { relative, showDateTime, stamp } from "@/lib/format";
 import type { Platform } from "@/db/schema";
 import { diagnosticsEnabled } from "@/lib/diagnostics";
 import { Empty, Panel, StateBadge } from "@/components/ui";
+import { and, eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { episodeImages } from "@/db/schema";
+import { buildThumbnailBrief, slugFor } from "@/lib/images/thumbnail-brief";
 import { BuzzsproutAudioUpload } from "./buzzsprout-parts";
+import { ThumbnailStep } from "./thumbnail-parts";
 import { updateEpisodeAction } from "@/app/studio/actions";
 import { latestTranscript } from "@/lib/domain/transcripts";
 import { getIntegration } from "@/lib/integrations/credentials";
@@ -78,6 +83,22 @@ export default async function EpisodeWorkspace({
 
   const youtubePub = publications.find((p) => p.platform === "YOUTUBE");
   const buzzsproutPub = publications.find((p) => p.platform === "BUZZSPROUT");
+
+  // Only the current ones. Superseded attempts are history, not the picture.
+  const images = await db
+    .select({
+      id: episodeImages.id,
+      kind: episodeImages.kind,
+      width: episodeImages.width,
+      height: episodeImages.height,
+    })
+    .from(episodeImages)
+    .where(
+      and(
+        eq(episodeImages.episodeId, episode.id),
+        eq(episodeImages.state, "ACCEPTED"),
+      ),
+    );
   const linkedVideoId = youtubePub?.externalId ?? null;
   const youtubeConnected = youtubeIntegration?.health === "CONNECTED";
   const transcript = transcriptResult?.transcript ?? null;
@@ -397,6 +418,52 @@ export default async function EpisodeWorkspace({
         </Panel>
 
         {/* --------------------------------------------------- ACTIVITY */}
+        {/* -------------------------------------------------- THUMBNAIL
+            The brief goes out, the images come back. The operator's ChatGPT
+            thread carries months of previous thumbnails and produces excellent
+            work every week; the same brief sent to the image API did not. So
+            the Studio removes the steps around that process rather than trying
+            to replace it. */}
+        <Panel
+          eyebrow="Thumbnail"
+          title="Brief out, artwork back"
+          actions={
+            <StateBadge
+              tone={
+                images.some((i) => i.kind === "THUMBNAIL_16_9") &&
+                images.some((i) => i.kind === "THUMBNAIL_1_1")
+                  ? "done"
+                  : images.length > 0
+                    ? "waiting"
+                    : "muted"
+              }
+              label={
+                images.some((i) => i.kind === "THUMBNAIL_16_9") &&
+                images.some((i) => i.kind === "THUMBNAIL_1_1")
+                  ? "Both uploaded"
+                  : images.length > 0
+                    ? "One of two"
+                    : "Not started"
+              }
+            />
+          }
+        >
+          <ThumbnailStep
+            episodeId={episode.id}
+            brief={buildThumbnailBrief({
+              headline: episode.approvedTitle ?? episode.workingTitle,
+              slug: slugFor(episode.approvedTitle ?? episode.workingTitle),
+            })}
+            hasHeadline={!!episode.approvedTitle}
+            existing={images.map((i) => ({
+              kind: i.kind,
+              id: i.id,
+              width: i.width,
+              height: i.height,
+            }))}
+          />
+        </Panel>
+
         {/* ------------------------------------------------- BUZZSPROUT
             The podcast needs a file nobody can fetch for us: StreamYard has no
             API, Rumble exposes no media, YouTube has no media endpoint, and
