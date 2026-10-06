@@ -191,8 +191,15 @@ export function PublicationRow({
         )}
       </td>
 
-      <td className="w-[200px] align-top">
-        <form action={changeIntent} className="flex">
+      <td className="w-[210px] align-top">
+        {/* A segmented SELECTOR, not a set of actions.
+            A filled green button labelled PUBLISH reads as "click to publish",
+            and an operator pressing it and seeing nothing happen reasonably
+            concludes the app is broken. It is a radio group showing the
+            current choice — so the selected one is marked, the unselected ones
+            are plainly inert, and the column says what it is. */}
+        <div className="eyebrow text-[9px] mb-1">Plan &mdash; not an action</div>
+        <form action={changeIntent} className="flex" role="radiogroup">
           <input type="hidden" name="publicationId" value={publication.id} />
           <input type="hidden" name="episodeId" value={episodeId} />
           {INTENTS.map((intent) => {
@@ -204,6 +211,13 @@ export function PublicationRow({
                 name="intent"
                 value={intent}
                 disabled={!canEdit}
+                role="radio"
+                aria-checked={on}
+                title={
+                  on
+                    ? `This episode is set to ${INTENT_LABEL[intent].toLowerCase()} on this platform`
+                    : `Change the plan to ${INTENT_LABEL[intent].toLowerCase()}`
+                }
                 className={[
                   "px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.08em] border border-[var(--color-ink-300)] -ml-px first:ml-0 transition-colors",
                   on
@@ -215,6 +229,7 @@ export function PublicationRow({
                     : "text-[var(--color-type-lo)] hover:text-[var(--color-type-hi)] disabled:hover:text-[var(--color-type-lo)]",
                 ].join(" ")}
               >
+                {on && <span aria-hidden="true">&#10003; </span>}
                 {INTENT_LABEL[intent]}
               </button>
             );
