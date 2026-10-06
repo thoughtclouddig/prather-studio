@@ -15,10 +15,12 @@
  * | POST | `/api/{id}/episodes.json` | Create. |
  * | PUT | `/api/{id}/episodes/{episodeId}.json` | Update; returns the full updated episode. |
  *
- * **There is no documented DELETE and no documented PATCH.** That is a
- * load-bearing fact, not trivia: it means a test episode created on the real
- * podcast cannot be cleanly removed, which is why the scheduling experiment in
- * `docs/PHASE-3-INVESTIGATION.md` is not run automatically.
+ * **PATCH exists; DELETE does not.** An earlier version of this note claimed
+ * neither existed. PATCH is how an episode is published — `{"private": false}`,
+ * optionally with a `published_at` to schedule it. The absence of DELETE is
+ * still load-bearing: an episode created on the real podcast cannot be cleanly
+ * removed, only made private, which is why anything that creates one is
+ * deliberate rather than automatic.
  *
  * **No rate limits are documented.** This client is therefore conservative by
  * construction: one request per operation, no polling loop, no parallel fan-out.
@@ -274,9 +276,8 @@ export async function updateEpisode(
 export async function createEpisode(fields: EpisodeWrite): Promise<BuzzsproutEpisode> {
   if (!fields.audio_url) {
     throw new Error(
-      "Refusing to create a Buzzsprout episode with no audio. A podcast episode " +
-        "without an audio file is not a published episode, and pretending " +
-        "otherwise is the failure this phase exists to avoid.",
+      "Refusing to PUBLISH a Buzzsprout episode with no audio. Use " +
+        "createDraftEpisode for a private placeholder.",
     );
   }
   const { apiToken, podcastId } = await credential();
@@ -285,6 +286,87 @@ export async function createEpisode(fields: EpisodeWrite): Promise<BuzzsproutEpi
     apiToken,
     { method: "POST", body: fields },
   );
+  return toEpisode(data);
+}
+
+/**
+ * Create a PRIVATE episode with no audio.
+ *
+ * Buzzsprout documents creating an episode "with at least a `title` and
+ * `"private": true`" — audio is not required. An earlier version of this client
+ * refused any create without audio, on the reasoning that a podcast episode
+ * without an audio file is not an episode. That reasoning holds for a PUBLISHED
+ * episode and is wrong for a draft: the show notes can be written, reviewed and
+ * approved well before the recording is exported, and holding the whole thing
+ * hostage to the audio inverted the order the work actually happens in.
+ *
+ * It is created private, which is Buzzsprout's draft state. Nothing is public
+ * until someone publishes it — and since Buzzsprout documents no DELETE, a
+ * private episode is also the only kind that can be walked back.
+ *
+ * Publishing later is a PATCH with `private: false`, optionally carrying a
+ * future `published_at` to schedule.
+ */
+export async function createDraftEpisode(fields: {
+  title: string;
+  description?: string;
+  episodeNumber?: number | null;
+  seasonNumber?: number | null;
+  /**
+   * The square thumbnail, as bytes. Sent as `artwork_file` rather than
+   * `artwork_url` because our images live behind the session — a URL
+   * Buzzsprout could fetch would be a URL anyone could fetch.
+   */
+  artwork?: { bytes: Buffer; contentType: string; filename: string } | null;
+}): Promise<BuzzsproutEpisode> {
+  if (!fields.title.trim()) {
+    throw new Error("A Buzzsprout episode needs a title.");
+  }
+  const { apiToken, podcastId } = await credential();
+  const path = `/${podcastId}/episodes.json`;
+
+  // Artwork forces multipart; without it JSON is simpler and better logged.
+  if (fields.artwork) {
+    const form = new FormData();
+    form.append("title", fields.title);
+    form.append("private", "true");
+    if (fields.description) form.append("description", fields.description);
+    if (fields.episodeNumber) form.append("episode_number", String(fields.episodeNumber));
+    if (fields.seasonNumber) form.append("season_number", String(fields.seasonNumber));
+    form.append(
+      "artwork_file",
+      new Blob([new Uint8Array(fields.artwork.bytes)], {
+        type: fields.artwork.contentType,
+      }),
+      fields.artwork.filename,
+    );
+
+    const res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { authorization: `Token token=${apiToken}`, accept: "application/json" },
+      body: form,
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      throw new BuzzsproutApiError(
+        res.status,
+        text.slice(0, 500),
+        `Buzzsprout returned ${res.status} creating the draft.`,
+      );
+    }
+    return toEpisode(JSON.parse(text) as Record<string, unknown>);
+  }
+
+  const data = await call<Record<string, unknown>>(path, apiToken, {
+    method: "POST",
+    body: {
+      title: fields.title,
+      private: true,
+      ...(fields.description ? { description: fields.description } : {}),
+      ...(fields.episodeNumber ? { episode_number: fields.episodeNumber } : {}),
+      ...(fields.seasonNumber ? { season_number: fields.seasonNumber } : {}),
+    },
+  });
   return toEpisode(data);
 }
 
