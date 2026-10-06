@@ -486,13 +486,28 @@ export default async function EpisodeWorkspace({
             />
           }
         >
+          {/* The headline comes from Jeff's submission, not from the
+              transcript. Blocking the artwork until captions arrive made the
+              thumbnail wait hours for a headline he had already written that
+              morning — the ordering was backwards. An approved editorial
+              headline still wins when one exists. */}
           <ThumbnailStep
             episodeId={episode.id}
+            headlineSource={
+              episode.approvedTitle
+                ? "approved"
+                : episode.hostHeadline
+                  ? "host"
+                  : "none"
+            }
             brief={buildThumbnailBrief({
-              headline: episode.approvedTitle ?? episode.workingTitle,
-              slug: slugFor(episode.approvedTitle ?? episode.workingTitle),
+              headline:
+                episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
+              slug: slugFor(
+                episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
+              ),
             })}
-            hasHeadline={!!episode.approvedTitle}
+            hasHeadline={!!(episode.approvedTitle ?? episode.hostHeadline)}
             youtubeLinked={!!youtubePub?.externalId}
             existing={images.map((i) => ({
               kind: i.kind,
