@@ -377,12 +377,18 @@ export default async function EpisodeWorkspace({
           </span>
         }
       >
+        <p className="px-4 py-2.5 text-[12px] text-[var(--color-type-lo)] leading-relaxed border-b border-[var(--color-ink-200)]">
+          <strong className="text-[var(--color-type-mid)]">Plan is what you intend, not a
+          button that publishes.</strong> The actual sends happen elsewhere: YouTube
+          metadata and thumbnail from Review and the Thumbnail panel, the podcast from the
+          Buzzsprout panel. Rumble is observed only and is never published to.
+        </p>
         <div className="overflow-x-auto">
           <table className="grid-table">
             <thead>
               <tr>
                 <th>Platform</th>
-                <th>Intent</th>
+                <th>Plan</th>
                 <th>State</th>
                 <th>External</th>
                 <th className="text-right">Adapter</th>
