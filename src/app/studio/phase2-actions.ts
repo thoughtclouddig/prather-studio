@@ -24,9 +24,18 @@ import {
   verifyCredentials,
 } from "@/lib/integrations/wordpress/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
+import {
+  datacenterFromKey,
+  verifyKey,
+} from "@/lib/integrations/mailchimp/client";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
-import { listRecentVideos, setThumbnail } from "@/lib/integrations/youtube/client";
+import {
+  listRecentVideos,
+  listUpcomingBroadcasts,
+  setThumbnail,
+} from "@/lib/integrations/youtube/client";
 import { PROMPT_VERSION } from "@/lib/content/package";
+import { PRE_SHOW_PROMPT_VERSION } from "@/lib/content/pre-show";
 import { recordActivity } from "@/lib/domain/activity";
 import { enqueue } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
@@ -133,7 +142,22 @@ export async function loadCandidates(episodeId: string) {
     .limit(1);
   if (!episode) throw new Error("Episode not found");
 
-  const videos = await listRecentVideos(25);
+  // Uploads AND scheduled broadcasts. A stream StreamYard has scheduled is not
+  // in the uploads playlist until it airs, so without the second call an
+  // episode could not be linked — and its thumbnail could not be set — until
+  // the show was already running. Which is exactly too late.
+  const [uploads, upcoming] = await Promise.all([
+    listRecentVideos(25),
+    listUpcomingBroadcasts(10).catch(() => []),
+  ]);
+
+  // Upcoming first: when a broadcast appears in both, the live record is the
+  // one carrying the scheduled start time the matcher keys on.
+  const seen = new Set<string>();
+  const videos = [...upcoming, ...uploads].filter((v) =>
+    seen.has(v.id) ? false : (seen.add(v.id), true),
+  );
+
   return candidatesForEpisode(episode, videos);
 }
 
@@ -271,6 +295,94 @@ export async function regenerateContentAction(
 
     return `Cleared ${cleared.length} draft(s). A fresh package is queued.`;
   }, episodePaths(episodeId));
+}
+
+/**
+ * Prepare the email from Jeff's submission, before the show.
+ *
+ * Keyed on the submission time and the prompt version, so pressing it twice on
+ * an unchanged submission is a no-op — but a resubmission from Jeff produces a
+ * genuinely new key and regenerates, which is the behaviour an operator
+ * expects after he sends a correction.
+ */
+export async function runPreShowAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+
+    const [episode] = await db
+      .select({ submittedAt: episodes.submittedAt, headline: episodes.hostHeadline })
+      .from(episodes)
+      .where(eq(episodes.id, episodeId))
+      .limit(1);
+
+    if (!episode?.headline) {
+      throw new Error("Jeff has not submitted this show yet, so there is nothing to prepare.");
+    }
+
+    await enqueue({
+      kind: "episode.pre_show",
+      idempotencyKey:
+        `episode.pre_show:${episodeId}:${episode.submittedAt?.getTime() ?? 0}:${PRE_SHOW_PROMPT_VERSION}`,
+      episodeId,
+      maxAttempts: 2,
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+
+    return "Preparing the email from Jeff's submission. It will appear in Review.";
+  }, episodePaths(episodeId));
+}
+
+/* ------------------------------------------------------------ Mailchimp */
+
+export async function connectMailchimpAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const apiKey = String(formData.get("apiKey") ?? "").trim();
+  const requestedList = String(formData.get("listId") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!apiKey) throw new Error("Paste the Mailchimp API key.");
+
+    const account = await verifyKey(apiKey);
+    if (account.audiences.length === 0) {
+      throw new Error("That key is valid but reaches no audiences.");
+    }
+
+    // An operator picks from the list rather than pasting an id. A wrong list
+    // id is a briefing sent to the wrong people, and Mailchimp will not say it
+    // was wrong — only that it worked.
+    const chosen = requestedList
+      ? account.audiences.find((a) => a.id === requestedList)
+      : account.audiences.length === 1
+        ? account.audiences[0]
+        : account.audiences.find((a) => a.id === "6f7bc677e9");
+
+    if (!chosen) {
+      throw new Error(
+        `This key reaches ${account.audiences.length} audiences (` +
+          account.audiences.map((a) => `${a.id} ${a.name}`).join(", ") +
+          "). Enter the audience ID to say which one.",
+      );
+    }
+
+    await saveCredential({
+      provider: "MAILCHIMP",
+      kind: "API_KEY",
+      payload: { apiKey, listId: chosen.id, datacenter: datacenterFromKey(apiKey)! },
+      accountLabel: `${account.accountName} · ${chosen.name}`,
+      accountExternalId: chosen.id,
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return `Connected to "${chosen.name}" (${chosen.memberCount.toLocaleString()} subscribers).`;
+  }, ["/studio/integrations", "/studio"]);
 }
 
 /* --------------------------------------------- Buzzsprout & WordPress */

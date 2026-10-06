@@ -4,6 +4,7 @@ import { useActionState } from "react";
 import { useFormStatus } from "react-dom";
 import {
   connectBuzzsproutAction,
+  connectMailchimpAction,
   connectRumbleAction,
   connectWordPressAction,
   disconnectIntegrationAction,
@@ -206,6 +207,49 @@ export function ConnectWordPressForm() {
         <strong className="text-[var(--color-signal-amber)]">Not</strong> your WordPress login
         password. Posts are always created as <strong>drafts</strong>; the Studio never
         publishes to the public site.
+      </p>
+      <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ConnectMailchimpForm() {
+  const [state, action] = useActionState(connectMailchimpAction, undefined);
+  return (
+    <form action={action} className="space-y-2">
+      <label className="block">
+        <span className="eyebrow block mb-1.5">API key</span>
+        <input
+          name="apiKey"
+          type="password"
+          required
+          autoComplete="off"
+          placeholder="…-us21"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">
+          Audience ID <span className="normal-case tracking-normal">(optional)</span>
+        </span>
+        <input
+          name="listId"
+          type="text"
+          autoComplete="off"
+          placeholder="6f7bc677e9"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        Mailchimp &rarr; <span className="mono">Account &rarr; Extras &rarr; API keys</span>. The
+        key ends with its datacenter (<span className="mono">-us21</span>), which is also the API
+        host &mdash; the Studio reads it from the key rather than asking. Verified before it is
+        saved, then stored encrypted.
+      </p>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        Leave the audience blank and the Studio lists what the key reaches. A wrong audience ID
+        is a briefing sent to the wrong people, and Mailchimp will not say it was wrong.
       </p>
       <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
       <Feedback state={state} />

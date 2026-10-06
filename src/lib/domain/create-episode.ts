@@ -18,7 +18,7 @@ import {
   type User,
 } from "@/db/schema";
 import { authorize } from "@/lib/auth/authorize";
-import { recordActivity } from "@/lib/domain/activity";
+import { recordActivity, type Actor } from "@/lib/domain/activity";
 import { POLL_LEAD_MS } from "@/lib/domain/broadcast-poll";
 
 /**
@@ -72,7 +72,25 @@ export async function createEpisode(
   input: CreateEpisodeInput,
 ): Promise<Episode> {
   authorize(user.role, "episode.create");
+  return createEpisodeRecord(input, { kind: "user", id: user.id, name: user.name });
+}
 
+/**
+ * Create an episode with no user to authorize against.
+ *
+ * The host's intake form has no session — Jeff is the host, not an operator,
+ * and requiring him to hold a password for a four-field form is how a form
+ * stops being used. So authorization is separated from creation rather than
+ * inventing a user for him to act as, which would attribute his submission to
+ * somebody who did not make it.
+ *
+ * Everything this creates is inert: a PLANNED or SCHEDULED episode and its
+ * platform rows. Nothing contacts a provider, sends anything or publishes.
+ */
+export async function createEpisodeRecord(
+  input: CreateEpisodeInput,
+  actor: Actor = { kind: "system", label: "host intake" },
+): Promise<Episode> {
   const workingTitle = input.workingTitle.trim();
   if (!workingTitle) throw new Error("An episode needs a working title.");
 
@@ -137,12 +155,12 @@ export async function createEpisode(
       episodeId: episode.id,
       maxAttempts: 5,
       runAfter: new Date(input.scheduledAt.getTime() - POLL_LEAD_MS),
-      actor: { kind: "user", id: user.id, name: user.name },
+      actor,
     });
   }
 
   await recordActivity({
-    actor: { kind: "user", id: user.id, name: user.name },
+    actor,
     verb: "episode.created",
     subjectType: "episode",
     subjectId: episode.id,

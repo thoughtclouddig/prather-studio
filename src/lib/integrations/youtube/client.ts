@@ -234,6 +234,36 @@ export async function listRecentVideos(limit = 25): Promise<YouTubeVideo[]> {
   return getVideos(ids);
 }
 
+/**
+ * Broadcasts that are scheduled but have not aired.
+ *
+ * `listRecentVideos` reads the uploads playlist, and a scheduled live broadcast
+ * is NOT in it until it airs. That matters for the pre-show workflow: when
+ * StreamYard schedules a stream it creates the YouTube broadcast immediately,
+ * so the video id exists hours beforehand — and the thumbnail can be set on it
+ * then, which is exactly when an operator wants to do it. Without this the
+ * episode could not be linked until the show was already running.
+ *
+ * `liveBroadcasts.list` is the only endpoint that returns them. The
+ * `youtube.force-ssl` scope already covers it.
+ */
+export async function listUpcomingBroadcasts(limit = 10): Promise<YouTubeVideo[]> {
+  const data = await call<{
+    items?: Array<{ id: string }>;
+  }>("liveBroadcasts", {
+    query: {
+      part: "id",
+      broadcastStatus: "upcoming",
+      broadcastType: "all",
+      maxResults: String(Math.min(limit, 50)),
+    },
+  });
+
+  const ids = (data.items ?? []).map((i) => i.id).filter(Boolean);
+  if (ids.length === 0) return [];
+  return getVideos(ids);
+}
+
 export async function getVideos(ids: string[]): Promise<YouTubeVideo[]> {
   if (ids.length === 0) return [];
   const data = await call<{
