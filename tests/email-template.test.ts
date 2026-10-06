@@ -29,20 +29,53 @@ describe("it has to survive real email clients", () => {
     expect(html).not.toMatch(/display:\s*grid/i);
   });
 
-  it("carries a viewport tag and mobile media queries", () => {
+  it("carries a viewport tag", () => {
     const html = renderBriefingEmail(email);
     expect(html).toContain('name="viewport"');
-    expect(html).toMatch(/@media only screen and \(max-width:620px\)/);
   });
 
-  /** The previous template was not responsive, on a list read mostly on phones. */
-  it("makes the shell and the button full width on small screens", () => {
+  it("is light, and says so, so no client re-themes it", () => {
     const html = renderBriefingEmail(email);
-    expect(html).toMatch(/\.shell\s*{\s*width:100% !important/);
-    expect(html).toMatch(/\.cta\s*{\s*display:block !important;\s*width:100% !important/);
+    expect(html).toMatch(/name="color-scheme" content="light"/);
+    expect(html).toMatch(/name="supported-color-schemes" content="light"/);
+    // The card and the page behind it are both declared. An email that sets a
+    // background but inherits its text colour is the one that turns
+    // white-on-white the day a client decides to theme it.
+    expect(html).toMatch(/<body style="[^"]*background:#ececed/);
+    expect(html).toMatch(/<body style="[^"]*color:#16161a/);
+    expect(html).toMatch(/background:#ffffff/);
   });
 
-  /** A CSS button renders as plain blue text in Outlook. */
+  it("is fluid, with no fixed-width table to force a sideways scroll", () => {
+    const html = renderBriefingEmail(email);
+    expect(html).toMatch(/max-width:600px/);
+    // A width="600" attribute cannot shrink. The only one allowed is inside
+    // the MSO conditional, which no phone ever parses.
+    const outsideMso = html.replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->/g, "");
+    expect(outsideMso).not.toMatch(/width="600"/);
+    expect(html).toMatch(/<!--\[if mso\]>[\s\S]*?width="600"/);
+  });
+
+  it("defaults to the mobile layout, so stripping the CSS cannot break it", () => {
+    const html = renderBriefingEmail(email);
+    // Gmail serving a non-Gmail account drops the <style> block wholesale.
+    // Under a max-width architecture that renders DESKTOP on a phone. The
+    // inline defaults must therefore be the small ones, and the media query
+    // must widen rather than narrow.
+    expect(html).toMatch(/<h1 class="h1" style="[^"]*font-size:26px/);
+    expect(html).toMatch(/@media screen and \(min-width:621px\)/);
+    expect(html).not.toMatch(/@media[^{]*max-width/);
+    const stripped = html.replace(/<style[\s\S]*?<\/style>/g, "");
+    expect(stripped).toMatch(/padding:12px 20px 20px/);
+    expect(stripped).not.toMatch(/padding-left:34px/);
+  });
+
+  it("gives the button a full-width tap target without needing the media query", () => {
+    const html = renderBriefingEmail(email);
+    expect(html).toMatch(/<table role="presentation" class="cta"[^>]*style="width:100%/);
+    expect(html).toMatch(/<a href="[^"]*" style="display:block/);
+  });
+
   it("builds the button as a bgcolor table cell", () => {
     const html = renderBriefingEmail(email);
     expect(html).toMatch(/<td bgcolor="#c8102e"/);
@@ -52,7 +85,7 @@ describe("it has to survive real email clients", () => {
   it("inlines the styles that matter rather than relying on the stylesheet", () => {
     const html = renderBriefingEmail(email);
     // Gmail strips <head> on some clients; type and colour must survive that.
-    expect(html).toMatch(/<h1 class="h1" style="[^"]*font-size:31px/);
+    expect(html).toMatch(/<h1 class="h1" style="[^"]*font-size:26px/);
   });
 });
 
@@ -66,7 +99,7 @@ describe("content", () => {
     const html = renderBriefingEmail(email);
     expect(html).toContain("Jeff here. I was there in 2003.");
     expect(html).toContain("Here&#039;s the tell: the timing.".replace("&#039;", "'"));
-    expect((html.match(/<p style="margin:0 0 18px/g) ?? []).length).toBe(2);
+    expect((html.match(/<p class="body-text" style="margin:0 0 18px/g) ?? []).length).toBe(2);
   });
 
   it("escapes HTML in operator-supplied copy", () => {
