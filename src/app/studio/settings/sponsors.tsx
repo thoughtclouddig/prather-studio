@@ -252,9 +252,14 @@ export function SponsorManager({
             </div>
           </form>
         ) : (
-          <button type="button" className="btn btn-xs" onClick={() => setAdding(true)}>
-            Add a sponsor
-          </button>
+          <div className="inline-flex gap-2 flex-wrap">
+            <button type="button" className="btn btn-xs" onClick={() => setAdding(true)}>
+              Add a sponsor
+            </button>
+            <a href="/studio/settings/import-sponsors" className="btn btn-xs btn-ghost">
+              Import from a past briefing
+            </a>
+          </div>
         )}
         <Feedback state={addState} />
       </div>

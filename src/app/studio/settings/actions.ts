@@ -194,3 +194,82 @@ export async function reorderSponsorAction(
     return `Moved ${row.name} ${direction}.`;
   });
 }
+
+
+/**
+ * Import the sponsors an operator ticked from a previous campaign.
+ *
+ * Only the ticked ones, and only ones not already present by name — running
+ * this twice should not produce two of everything, and an operator correcting
+ * a code by hand should not have it overwritten by a re-import of the email it
+ * came from.
+ */
+export async function importSponsorsAction(
+  _prev: ActionState,
+  form: FormData,
+): Promise<ActionState> {
+  return guarded(async () => {
+    const user = await requirePermission("settings.edit");
+
+    const picked = form.getAll("sponsor").map(String);
+    if (picked.length === 0) throw new Error("Tick the sponsors you want to keep.");
+
+    const [show] = await db.select().from(shows).limit(1);
+    if (!show) throw new Error("No show is configured yet.");
+
+    const existing = await db.select().from(sponsors).where(eq(sponsors.showId, show.id));
+    const taken = new Set(existing.map((s) => s.name.toLowerCase().trim()));
+
+    const [{ next } = { next: 0 }] = await db
+      .select({ next: sql<number>`coalesce(max(${sponsors.sortOrder}), -1) + 1` })
+      .from(sponsors)
+      .where(eq(sponsors.showId, show.id));
+
+    const rows: Array<{ name: string; url: string | null; offer: string | null }> = [];
+    for (const raw of picked) {
+      let parsed: { name?: string; url?: string | null; offer?: string | null };
+      try {
+        parsed = JSON.parse(raw) as typeof parsed;
+      } catch {
+        continue;
+      }
+      const name = parsed.name?.trim();
+      if (!name || taken.has(name.toLowerCase())) continue;
+      taken.add(name.toLowerCase());
+      rows.push({
+        name,
+        url: parsed.url?.trim() || null,
+        offer: parsed.offer?.trim() || null,
+      });
+    }
+
+    if (rows.length === 0) {
+      return "Those sponsors are already in the list — nothing to add.";
+    }
+
+    await db.insert(sponsors).values(
+      rows.map((row, i) => ({
+        showId: show.id,
+        name: row.name,
+        url: row.url,
+        offer: row.offer,
+        sortOrder: next + i,
+      })),
+    );
+
+    await recordActivity({
+      actor: { kind: "user", id: user.id, name: user.name },
+      verb: "sponsor.imported",
+      subjectType: "settings",
+      subjectId: show.id,
+      summary: `Imported ${rows.length} sponsor${rows.length === 1 ? "" : "s"} from a previous campaign`,
+      after: { names: rows.map((r) => r.name) },
+    });
+
+    const skipped = picked.length - rows.length;
+    return (
+      `Added ${rows.length} sponsor${rows.length === 1 ? "" : "s"}.` +
+      (skipped > 0 ? ` ${skipped} already existed and ${skipped === 1 ? "was" : "were"} left alone.` : "")
+    );
+  });
+}
