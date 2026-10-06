@@ -31,6 +31,7 @@ import {
   setThumbnail,
 } from "@/lib/integrations/youtube/client";
 import { PROMPT_VERSION } from "@/lib/content/package";
+import { PRE_SHOW_PROMPT_VERSION } from "@/lib/content/pre-show";
 import { recordActivity } from "@/lib/domain/activity";
 import { enqueue } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
@@ -289,6 +290,45 @@ export async function regenerateContentAction(
     });
 
     return `Cleared ${cleared.length} draft(s). A fresh package is queued.`;
+  }, episodePaths(episodeId));
+}
+
+/**
+ * Prepare the email from Jeff's submission, before the show.
+ *
+ * Keyed on the submission time and the prompt version, so pressing it twice on
+ * an unchanged submission is a no-op — but a resubmission from Jeff produces a
+ * genuinely new key and regenerates, which is the behaviour an operator
+ * expects after he sends a correction.
+ */
+export async function runPreShowAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+
+    const [episode] = await db
+      .select({ submittedAt: episodes.submittedAt, headline: episodes.hostHeadline })
+      .from(episodes)
+      .where(eq(episodes.id, episodeId))
+      .limit(1);
+
+    if (!episode?.headline) {
+      throw new Error("Jeff has not submitted this show yet, so there is nothing to prepare.");
+    }
+
+    await enqueue({
+      kind: "episode.pre_show",
+      idempotencyKey:
+        `episode.pre_show:${episodeId}:${episode.submittedAt?.getTime() ?? 0}:${PRE_SHOW_PROMPT_VERSION}`,
+      episodeId,
+      maxAttempts: 2,
+      actor: { kind: "user", id: user.id, name: user.name },
+    });
+
+    return "Preparing the email from Jeff's submission. It will appear in Review.";
   }, episodePaths(episodeId));
 }
 

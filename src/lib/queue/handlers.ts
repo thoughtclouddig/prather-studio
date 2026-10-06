@@ -46,6 +46,7 @@ import {
   recordBroadcastObservation,
 } from "@/lib/domain/observations";
 import { PROMPT_VERSION } from "@/lib/content/package";
+import { runPreShow } from "@/lib/content/pre-show";
 import {
   BuzzsproutNotConnectedError,
   listEpisodes as listBuzzsproutEpisodes,
@@ -231,6 +232,22 @@ const fetchCaptions: Handler = async (job, ctx) => {
     packageQueued: created,
     draftsMarkedStale: staleCount,
   };
+};
+
+/**
+ * `episode.pre_show` — prepare the email from Jeff's submission.
+ *
+ * Runs before the broadcast, reading the intake rather than a transcript. It
+ * deliberately does NOT move the episode's phase: the show has not happened,
+ * and marking it REVIEW would make a prepared email look like a finished
+ * episode on the dashboard.
+ */
+const preShowHandler: Handler = async (job) => {
+  const episodeId = job.episodeId;
+  if (!episodeId) throw new Error("episode.pre_show requires an episodeId");
+
+  const draftsCreated = await runPreShow(episodeId);
+  return { draftsCreated };
 };
 
 const packageEpisodeHandler: Handler = async (job, ctx) => {
@@ -585,6 +602,7 @@ export const HANDLERS: Record<string, Handler> = {
   "simulate.publication": simulatePublication,
   "youtube.fetch_captions": fetchCaptions,
   "episode.package": packageEpisodeHandler,
+  "episode.pre_show": preShowHandler,
   "rumble.poll_live": pollRumble,
   "youtube.poll_broadcast": pollYouTubeBroadcast,
   "buzzsprout.sync_recent": syncBuzzsproutRecent,
