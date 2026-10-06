@@ -302,6 +302,23 @@ export const episodes = pgTable(
      * person or around the topic.
      */
     guestName: text("guest_name"),
+
+    /* ------------------------------------------------------- the host's own
+     * What Jeff submits before the show, stored VERBATIM.
+     *
+     * These are not drafts and they are never overwritten by generated copy.
+     * His headline seeds alternates; his topics and his brief are used as
+     * written, proofread rather than rewritten. The whole point of keeping them
+     * in their own columns is that "what Jeff actually said" stays answerable
+     * after any amount of editorial work has happened on top.
+     */
+    hostHeadline: text("host_headline"),
+    /** One topic per line, exactly as typed. */
+    hostTopics: text("host_topics"),
+    /** His own write-up for the email. His voice, his paragraphs. */
+    hostBrief: text("host_brief"),
+    hostNotes: text("host_notes"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
     preStreamAssetId: uuid("pre_stream_asset_id").references(
       () => preStreamAssets.id,
       { onDelete: "set null" },

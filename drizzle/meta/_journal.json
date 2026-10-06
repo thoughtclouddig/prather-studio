@@ -64,6 +64,13 @@
       "when": 1791237002998,
       "tag": "0008_polite_random",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791307295790,
+      "tag": "0009_known_hellfire_club",
+      "breakpoints": true
     }
   ]
 }
