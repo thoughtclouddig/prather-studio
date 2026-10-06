@@ -567,3 +567,44 @@ So the adapter takes the Rumble URL as an operator-supplied field, verified
 against duration, and attempts automatic discovery separately. One paste, with
 everything downstream automatic — the same shape as the audio step (§7), and for
 the same reason: the provider does not expose what we would need.
+
+---
+
+## 10. Rumble's upload API — real, and still not usable here
+
+Checked 2026-10-05, correcting a flat statement that Rumble has "no metadata
+write API".
+
+**It has one.** `POST https://rumble.com/api/simple-upload.php`, multipart,
+taking `access_token` (40 characters), `title`, `description`, `license_type`,
+an **optional thumbnail file**, `channel_id`, `guid` and caption files in vtt,
+srt, sbv, stl or sub. It returns `video_id` plus monetised embed URLs.
+
+So Rumble can be written to. The correction matters, because "no write API" is
+the kind of claim that stops a useful idea being raised again.
+
+### Why it still does not solve the thumbnail
+
+It **creates** a video. No documented endpoint updates an existing one — not
+its title, not its description, not its thumbnail.
+
+The Prather Point's Rumble videos already exist: StreamYard pushes the
+broadcast live, and the VOD is what remains afterwards. Calling the upload API
+would produce a SECOND copy of every show — which is exactly the duplicate
+problem §1 spent a day untangling on YouTube, reproduced deliberately.
+
+So the Rumble thumbnail stays a manual step. Not because Rumble cannot be
+written to, but because the only write it offers is the one we must not make.
+
+### When it would become relevant
+
+If the show ever stopped streaming to Rumble and started uploading to it — a
+real possibility if the master-video work in a later phase produces a file —
+this API is how the Studio would do it, with the thumbnail, description and
+captions attached in the same call.
+
+Two things would need establishing first: access is reported as gated (the
+40-character token is issued by Rumble rather than generated in an account
+page), and the docs host was unreachable from here, so the parameter list above
+comes from secondary sources and should be confirmed against the official page
+before anything is built on it.

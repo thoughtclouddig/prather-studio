@@ -32,7 +32,8 @@
     "restart": "npm run stop; npm run start:production",
     "probe:images": "node scripts/probe-image-api.mjs",
     "probe:thumbnail": "tsx --tsconfig worker/tsconfig.json scripts/probe-thumbnail.mjs",
-    "probe:sizes": "node scripts/probe-sizes.mjs"
+    "probe:sizes": "node scripts/probe-sizes.mjs",
+    "fix:dedupe-drafts": "tsx --tsconfig worker/tsconfig.json src/db/dedupe-drafts.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.124.0",

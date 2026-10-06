@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
+import { pushThumbnailAction } from "@/app/studio/phase2-actions";
 import { useRouter } from "next/navigation";
 
 /**
@@ -18,11 +19,13 @@ export function ThumbnailStep({
   brief,
   hasHeadline,
   existing,
+  youtubeLinked,
 }: {
   episodeId: string;
   brief: string;
   hasHeadline: boolean;
   existing: { kind: string; id: string; width: number | null; height: number | null }[];
+  youtubeLinked: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [showBrief, setShowBrief] = useState(false);
@@ -97,7 +100,39 @@ export function ThumbnailStep({
           image={square}
         />
       </div>
+
+      {master && <PushToYouTube episodeId={episodeId} linked={youtubeLinked} />}
+
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-relaxed max-w-[70ch]">
+        Both files are resized and re-encoded on upload &mdash; the master to exactly
+        1920&times;1080 and the smallest JPEG that still looks right, well under
+        YouTube&rsquo;s 2&nbsp;MB limit. <strong className="text-[var(--color-type-mid)]">
+        Rumble&rsquo;s thumbnail stays manual</strong> &mdash; its upload API can set one
+        when CREATING a video, but the show already exists as a livestream, and there is no
+        documented way to change an existing video. Uploading again would make a second copy.
+      </p>
     </div>
+  );
+}
+
+function PushToYouTube({ episodeId, linked }: { episodeId: string; linked: boolean }) {
+  const [state, action] = useActionState(pushThumbnailAction, undefined);
+  return (
+    <form action={action} className="flex items-center gap-3 flex-wrap">
+      <input type="hidden" name="episodeId" value={episodeId} />
+      <button type="submit" className="btn btn-xs" disabled={!linked}>
+        Set as YouTube thumbnail
+      </button>
+      {!linked && (
+        <span className="mono text-[11px]">link a YouTube video first</span>
+      )}
+      {state?.ok && (
+        <span className="text-[12px] text-[var(--color-signal-green)]">{state.ok}</span>
+      )}
+      {state?.error && (
+        <span className="text-[12px] text-[var(--color-signal-red)]">{state.error}</span>
+      )}
+    </form>
   );
 }
 

@@ -18,14 +18,14 @@ import {
 } from "@/lib/integrations/wordpress/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
-import { listRecentVideos } from "@/lib/integrations/youtube/client";
+import { listRecentVideos, setThumbnail } from "@/lib/integrations/youtube/client";
 import { PROMPT_VERSION } from "@/lib/content/package";
 import { recordActivity } from "@/lib/domain/activity";
 import { enqueue } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
 import { extractVideoId } from "@/lib/integrations/youtube/video-id";
 import { db } from "@/db/client";
-import { episodes, type IntegrationProvider, episodeTranscripts, episodeContentDrafts} from "@/db/schema";
+import { episodes, type IntegrationProvider, episodeTranscripts, episodeContentDrafts, episodeImages, episodePublications} from "@/db/schema";
 import { and, desc, eq, ne } from "drizzle-orm";
 import type { ActionState } from "./actions";
 
@@ -267,6 +267,77 @@ export async function regenerateContentAction(
 }
 
 /* -------------------------------------------------------- YouTube write */
+
+/**
+ * Push the approved 16:9 thumbnail to the linked YouTube video.
+ *
+ * Separate from the metadata update on purpose. A thumbnail is a different
+ * decision from a title and description — it is often ready later, and an
+ * operator who is happy with the copy should not have to re-send it to change
+ * the picture.
+ *
+ * YouTube's own limits are enforced on upload rather than here (1920x1080,
+ * under 2 MB), so by the time an image is stored it is already acceptable.
+ * What this checks is the thing storage cannot: that there IS a linked video.
+ */
+export async function pushThumbnailAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+
+    const [publication] = await db
+      .select()
+      .from(episodePublications)
+      .where(
+        and(
+          eq(episodePublications.episodeId, episodeId),
+          eq(episodePublications.platform, "YOUTUBE"),
+        ),
+      )
+      .limit(1);
+
+    const videoId = publication?.externalId;
+    if (!videoId) {
+      throw new Error("This episode is not linked to a YouTube video yet.");
+    }
+
+    const [image] = await db
+      .select()
+      .from(episodeImages)
+      .where(
+        and(
+          eq(episodeImages.episodeId, episodeId),
+          eq(episodeImages.kind, "THUMBNAIL_16_9"),
+          eq(episodeImages.state, "ACCEPTED"),
+        ),
+      )
+      .limit(1);
+
+    if (!image) {
+      throw new Error("Upload the 1920x1080 master first.");
+    }
+
+    await setThumbnail(videoId, image.bytes, image.contentType);
+
+    await recordActivity({
+      actor: { kind: "user", id: user.id, name: user.name },
+      verb: "youtube.thumbnail_set",
+      subjectType: "publication",
+      subjectId: publication!.id,
+      episodeId,
+      summary:
+        `Set the thumbnail on YouTube video ${videoId} ` +
+        `(${image.width}x${image.height}, ${Math.round(image.byteSize / 1024)} KB)`,
+      after: { videoId, imageId: image.id, bytes: image.byteSize },
+    });
+
+    return `Thumbnail set on ${videoId}.`;
+  }, episodePaths(episodeId));
+}
+
 
 /**
  * Apply the metadata update.
