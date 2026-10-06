@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   connectBuzzsproutAction,
   connectMailchimpAction,
+  connectPrintfulAction,
   connectRumbleAction,
   connectWordPressAction,
   disconnectIntegrationAction,
@@ -250,6 +251,60 @@ export function ConnectMailchimpForm() {
       <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
         Leave the audience blank and the Studio lists what the key reaches. A wrong audience ID
         is a briefing sent to the wrong people, and Mailchimp will not say it was wrong.
+      </p>
+      <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ConnectPrintfulForm() {
+  const [state, action] = useActionState(connectPrintfulAction, undefined);
+  return (
+    <form action={action} className="space-y-2">
+      <label className="block">
+        <span className="eyebrow block mb-1.5">API token</span>
+        <input
+          name="token"
+          type="password"
+          required
+          autoComplete="off"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">
+          Shop web address{" "}
+          <span className="normal-case tracking-normal">(recommended)</span>
+        </span>
+        <input
+          name="website"
+          type="text"
+          autoComplete="off"
+          placeholder="shop.jeffreyprather.com"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">
+          Store ID <span className="normal-case tracking-normal">(only if asked)</span>
+        </span>
+        <input
+          name="storeId"
+          type="text"
+          autoComplete="off"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        Printful &rarr; <span className="mono">Settings &rarr; Developers &rarr; API tokens</span>.
+        It needs read access to stores and products; nothing here ever writes to Printful.
+        Verified before it is saved, then stored encrypted.
+      </p>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        The shop address matters: Printful fulfils orders but does not host the shop, so it
+        usually cannot tell us where a product is actually bought. Without an address the
+        Studio has no link to put behind a merch item.
       </p>
       <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
       <Feedback state={state} />

@@ -29,6 +29,7 @@ import {
   verifyKey,
 } from "@/lib/integrations/mailchimp/client";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
+import { listStores } from "@/lib/integrations/printful/client";
 import {
   listRecentVideos,
   listUpcomingBroadcasts,
@@ -360,6 +361,73 @@ export async function runPreShowAction(
 }
 
 /* ------------------------------------------------------------ Mailchimp */
+
+/* ------------------------------------------------------------- Printful */
+
+/**
+ * Connect the merch store.
+ *
+ * The verification deliberately reports what Printful DOES and DOES NOT know.
+ * A store that cannot tell us its own website is a store whose products have
+ * no linkable address, and the operator should learn that here rather than
+ * from a briefing full of dead links.
+ */
+export async function connectPrintfulAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const token = String(formData.get("token") ?? "").trim();
+  const requestedStore = String(formData.get("storeId") ?? "").trim();
+  const website = String(formData.get("website") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!token) throw new Error("Paste the Printful API token.");
+
+    const stores = await listStores(token, requestedStore || null);
+    if (stores.length === 0) {
+      throw new Error("That token is valid but reaches no Printful store.");
+    }
+
+    const chosen = requestedStore
+      ? stores.find((s) => String(s.id) === requestedStore)
+      : stores.length === 1
+        ? stores[0]
+        : undefined;
+
+    if (!chosen) {
+      throw new Error(
+        `This token reaches ${stores.length} stores (` +
+          stores.map((s) => `${s.id} ${s.name}`).join(", ") +
+          "). Enter the store ID to say which one.",
+      );
+    }
+
+    // An operator-supplied address wins: Printful often does not store one,
+    // and it is the only thing that makes a product linkable.
+    const resolved = website || chosen.website;
+
+    await saveCredential({
+      provider: "PRINTFUL",
+      kind: "API_KEY",
+      payload: {
+        token,
+        storeId: String(chosen.id),
+        website: resolved ?? null,
+        storeType: chosen.type,
+      },
+      accountLabel: `${chosen.name}${chosen.type ? ` · ${chosen.type}` : ""}`,
+      accountExternalId: String(chosen.id),
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return resolved
+      ? `Connected to "${chosen.name}". Shop address: ${resolved}`
+      : `Connected to "${chosen.name}", but Printful does not know the shop's web ` +
+          `address — add it above so products can be linked from the email.`;
+  }, ["/studio/integrations", "/studio"]);
+}
 
 export async function connectMailchimpAction(
   _prev: ActionState,

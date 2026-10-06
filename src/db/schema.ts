@@ -111,6 +111,7 @@ export const integrationProvider = pgEnum("integration_provider", [
   "OPUSCLIP",
   "LOCALS",
   "WORDPRESS",
+  "PRINTFUL",
 ]);
 
 export const credentialKind = pgEnum("credential_kind", ["OAUTH", "API_KEY", "URL_SECRET"]);
