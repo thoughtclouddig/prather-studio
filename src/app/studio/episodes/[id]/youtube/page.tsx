@@ -6,7 +6,7 @@ import { episodes } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require";
 import { planYouTubeUpdate } from "@/lib/domain/youtube-publish";
 import { relative } from "@/lib/format";
-import { Panel } from "@/components/ui";
+import { Panel, BackToEpisode} from "@/components/ui";
 import { ConfirmUpdateForm } from "./parts";
 
 export const dynamic = "force-dynamic";
@@ -82,6 +82,7 @@ export default async function YouTubeUpdatePage({
   return (
     <div className="space-y-5 max-w-[1100px]">
       <div>
+        <BackToEpisode episodeId={id} />
         <div className="eyebrow">
           <Link href={`/studio/episodes/${id}`} className="hover:text-[var(--color-type-hi)]">
             {episode.approvedTitle ?? episode.workingTitle}

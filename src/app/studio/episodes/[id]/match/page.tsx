@@ -7,7 +7,7 @@ import { requireUser } from "@/lib/auth/require";
 import { getIntegration } from "@/lib/integrations/credentials";
 import { loadCandidates } from "@/app/studio/phase2-actions";
 import { showDateTime, relative } from "@/lib/format";
-import { Empty, Panel, StateBadge } from "@/components/ui";
+import { Empty, Panel, StateBadge, BackToEpisode} from "@/components/ui";
 import { ConfirmMatchButton, ManualLinkForm } from "./parts";
 
 export const dynamic = "force-dynamic";
@@ -44,6 +44,7 @@ export default async function MatchPage({
   return (
     <div className="space-y-5 max-w-[1000px]">
       <div>
+        <BackToEpisode episodeId={id} />
         <div className="eyebrow">
           <Link href={`/studio/episodes/${id}`} className="hover:text-[var(--color-type-hi)]">
             {episode.workingTitle}

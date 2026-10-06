@@ -58,3 +58,29 @@ export function Field({ label, value }: { label: string; value: ReactNode }) {
 export function SimTag() {
   return <span className="tag tag-sim">Simulated</span>;
 }
+
+
+/**
+ * The way back from an episode sub-page.
+ *
+ * Review, Match and the YouTube diff all used to be dead ends: the only route
+ * back to the episode was Episodes, then find the row, then click the title.
+ * A reviewer moves between the diff and the episode constantly, so three clicks
+ * each way is the difference between checking something and not bothering.
+ */
+export function BackToEpisode({
+  episodeId,
+  label = "Episode",
+}: {
+  episodeId: string;
+  label?: string;
+}) {
+  return (
+    <a
+      href={`/studio/episodes/${episodeId}`}
+      className="link text-[12px] font-semibold inline-flex items-center gap-1.5"
+    >
+      <span aria-hidden="true">&larr;</span> {label}
+    </a>
+  );
+}

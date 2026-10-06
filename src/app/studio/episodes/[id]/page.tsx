@@ -144,11 +144,18 @@ export default async function EpisodeWorkspace({
           )}
         </div>
 
-        {proposed.length > 0 && (
-          <Link href={`/studio/episodes/${episode.id}/review`} className="btn btn-primary">
-            Review {proposed.length} item{proposed.length === 1 ? "" : "s"}
-          </Link>
-        )}
+        {/* Always present. It used to appear only once proposals existed, so
+            "Proposals will appear in Review" named a destination with no visible
+            way to reach it — the operator was told to go somewhere that was not
+            on screen. */}
+        <Link
+          href={`/studio/episodes/${episode.id}/review`}
+          className={`btn ${proposed.length > 0 ? "btn-primary" : "btn-ghost"}`}
+        >
+          {proposed.length > 0
+            ? `Review ${proposed.length} item${proposed.length === 1 ? "" : "s"}`
+            : "Review"}
+        </Link>
       </div>
 
       {/* ------------------------------------------------------- EPISODE */}
