@@ -20,10 +20,12 @@ export function ThumbnailStep({
   hasHeadline,
   existing,
   youtubeLinked,
+  headlineSource,
 }: {
   episodeId: string;
   brief: string;
   hasHeadline: boolean;
+  headlineSource: "approved" | "host" | "none";
   existing: { kind: string; id: string; width: number | null; height: number | null }[];
   youtubeLinked: boolean;
 }) {
@@ -47,9 +49,9 @@ export function ThumbnailStep({
           <span>Headline required</span>
         </div>
         <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed max-w-[64ch]">
-          The brief carries the approved headline into the artwork, so approve a primary
-          headline in Review first. Generating before then would put a working title on
-          the thumbnail.
+          The brief carries the headline into the artwork, and there is not one yet &mdash;
+          Jeff has not submitted this show and no editorial headline is approved. Either
+          unblocks it; the artwork does not wait for the transcript.
         </p>
       </div>
     );
@@ -73,6 +75,11 @@ export function ThumbnailStep({
           {showBrief ? "Hide" : "Show"} brief
         </button>
         <span className="mono text-[11px]">paste into your thumbnail thread</span>
+        <span className="mono text-[11px]">
+          {headlineSource === "approved"
+            ? "using the approved headline"
+            : "using Jeff\u2019s headline"}
+        </span>
       </div>
 
       {showBrief && (

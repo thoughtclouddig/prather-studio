@@ -4,6 +4,7 @@ import { settings, shows, sponsors, users } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require";
 import { can } from "@/lib/auth/authorize";
 import { Empty, Field, Panel } from "@/components/ui";
+import { DEFAULT_SEND_TIME, DEFAULT_SEND_ZONE } from "@/lib/email/send-time";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +73,15 @@ export default async function SettingsPage() {
             <Field
               label="Mailchimp audience"
               value={<span className="mono">{config?.mailchimpAudienceId ?? "—"}</span>}
+            />
+            <Field
+              label="Briefing send time"
+              value={
+                <span className="mono">
+                  {config?.emailSendTime ?? DEFAULT_SEND_TIME}{" "}
+                  {config?.emailSendTimezone ?? DEFAULT_SEND_ZONE}
+                </span>
+              }
             />
             <div className="sm:col-span-2">
               <Field label="Default CTA" value={config?.defaultCta ?? "—"} />

@@ -5,6 +5,7 @@ import { useFormStatus } from "react-dom";
 import {
   enqueueCaptionsAction,
   enqueuePackageAction,
+  runPreShowAction,
   regenerateContentAction,
   unlinkYouTubeAction,
 } from "@/app/studio/phase2-actions";
@@ -62,6 +63,39 @@ export function FetchCaptionsButton({
         title={disabled ? "Link a YouTube video first" : undefined}
       >
         {hasTranscript ? "Re-fetch captions" : "Retrieve transcript"}
+      </Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+/**
+ * Prepare the email from Jeff's submission, before the show.
+ *
+ * The packaging engine reads the transcript, so it cannot run until captions
+ * exist — which is hours after the broadcast and long after the email has to
+ * go out. This one reads what Jeff submitted that morning, so the subject
+ * lines, the brief and the bullets are ready before anyone goes live.
+ */
+export function RunPreShowButton({
+  episodeId,
+  disabled,
+  hasDrafts,
+}: {
+  episodeId: string;
+  disabled: boolean;
+  hasDrafts: boolean;
+}) {
+  const [state, action] = useActionState(runPreShowAction, undefined);
+  return (
+    <form action={action} className="inline-flex flex-col items-start">
+      <input type="hidden" name="episodeId" value={episodeId} />
+      <Submit
+        className={`btn btn-xs ${hasDrafts ? "" : "btn-primary"}`}
+        disabled={disabled}
+        title={disabled ? "Jeff has not submitted this show yet" : undefined}
+      >
+        {hasDrafts ? "Re-run from submission" : "Prepare the email"}
       </Submit>
       <Feedback state={state} />
     </form>

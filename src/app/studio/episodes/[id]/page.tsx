@@ -24,6 +24,7 @@ import { db } from "@/db/client";
 import { episodeImages } from "@/db/schema";
 import { buildThumbnailBrief, slugFor } from "@/lib/images/thumbnail-brief";
 import { BuzzsproutAudioUpload } from "./buzzsprout-parts";
+import { RumbleHandoff } from "./rumble-parts";
 import { CreateBuzzsproutDraft, CreateWordPressDraft } from "./publish-parts";
 import { ThumbnailStep } from "./thumbnail-parts";
 import { updateEpisodeAction } from "@/app/studio/actions";
@@ -90,6 +91,15 @@ export default async function EpisodeWorkspace({
   const youtubePub = publications.find((p) => p.platform === "YOUTUBE");
   const buzzsproutPub = publications.find((p) => p.platform === "BUZZSPROUT");
   const wordpressPub = publications.find((p) => p.platform === "WORDPRESS");
+  const rumblePub = publications.find((p) => p.platform === "RUMBLE");
+
+  // The same approved copy YouTube receives — one source, several destinations.
+  const approvedDescription =
+    drafts.find((d) => d.field === "platform_description" && d.state === "APPROVED")?.value ??
+    drafts.find((d) => d.field === "summary_long" && d.state === "APPROVED")?.value ??
+    null;
+  const approvedChapters =
+    drafts.find((d) => d.field === "chapters" && d.state === "APPROVED")?.value ?? null;
 
   // Only the current ones. Superseded attempts are history, not the picture.
   const images = await db
@@ -476,13 +486,28 @@ export default async function EpisodeWorkspace({
             />
           }
         >
+          {/* The headline comes from Jeff's submission, not from the
+              transcript. Blocking the artwork until captions arrive made the
+              thumbnail wait hours for a headline he had already written that
+              morning — the ordering was backwards. An approved editorial
+              headline still wins when one exists. */}
           <ThumbnailStep
             episodeId={episode.id}
+            headlineSource={
+              episode.approvedTitle
+                ? "approved"
+                : episode.hostHeadline
+                  ? "host"
+                  : "none"
+            }
             brief={buildThumbnailBrief({
-              headline: episode.approvedTitle ?? episode.workingTitle,
-              slug: slugFor(episode.approvedTitle ?? episode.workingTitle),
+              headline:
+                episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
+              slug: slugFor(
+                episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
+              ),
             })}
-            hasHeadline={!!episode.approvedTitle}
+            hasHeadline={!!(episode.approvedTitle ?? episode.hostHeadline)}
             youtubeLinked={!!youtubePub?.externalId}
             existing={images.map((i) => ({
               kind: i.kind,
@@ -490,6 +515,22 @@ export default async function EpisodeWorkspace({
               width: i.width,
               height: i.height,
             }))}
+          />
+        </Panel>
+
+        {/* ------------------------------------------------------ RUMBLE
+            Rumble exposes no metadata write for an existing video, so this is
+            a handoff rather than a publish. Tracking the paste beats pretending
+            the step does not exist. */}
+        <Panel
+          eyebrow="Rumble"
+          title="Description &amp; chapters — copy and paste"
+          actions={<span className="mono">no write API</span>}
+        >
+          <RumbleHandoff
+            description={approvedDescription}
+            chapters={approvedChapters}
+            videoUrl={rumblePub?.externalUrl ?? null}
           />
         </Panel>
 
