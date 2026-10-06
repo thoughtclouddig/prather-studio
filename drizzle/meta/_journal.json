@@ -71,6 +71,13 @@
       "when": 1791307295790,
       "tag": "0009_known_hellfire_club",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791307295791,
+      "tag": "0010_quiet_phoenix",
+      "breakpoints": true
     }
   ]
 }

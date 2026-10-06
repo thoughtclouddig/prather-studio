@@ -257,6 +257,22 @@ export const settings = pgTable("settings", {
   replyTo: text("reply_to"),
   mailchimpAudienceId: text("mailchimp_audience_id"),
   defaultCta: text("default_cta"),
+  /**
+   * When the briefing goes out, as a wall-clock time in `emailSendTimezone`.
+   *
+   * Stored as a time and a zone rather than an offset or a gap from air, for
+   * two reasons that only show up twice a year:
+   *
+   *  · Arizona does not observe DST, so `America/Phoenix` is -07:00 all year
+   *    while the show's Eastern air time shifts. A stored offset would be
+   *    right in October and an hour wrong in November.
+   *  · The gap between the email and the broadcast therefore CHANGES across
+   *    the DST boundary — 11:00 Phoenix is on air in summer and an hour
+   *    before it in winter. That is a real editorial fact, not a bug, and
+   *    deriving the send time from air time would hide it.
+   */
+  emailSendTime: text("email_send_time"),
+  emailSendTimezone: text("email_send_timezone"),
   /** Real Jeff writing. Seeds the future content engine; nothing reads it yet. */
   aiVoiceProfile: text("ai_voice_profile"),
   aiVoiceNotes: text("ai_voice_notes"),
