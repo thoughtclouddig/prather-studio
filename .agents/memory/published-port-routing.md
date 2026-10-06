@@ -5,6 +5,6 @@ description: Diagnose a generic published-site 500 before changing application l
 
 Reserved VM publishing requires a single exposed external port. When services are removed or a multi-artifact setup is replaced, check for stale port mappings before changing application code.
 
-**Why:** This project retained mappings for retired services while the app was running as a single Next.js service. The published site returned a bare 500 on every path despite successful-build metadata, while the development login worked. Official Replit documentation warns that exposing multiple ports can cause publishing failures or Internal Server Error responses.
+**Why:** The published site returned a bare 500 despite successful-build metadata and a working development login. Cleaning stale port mappings did not resolve it; fresh deployment logs subsequently exposed a startup crash. A build's success and a local page's health do not verify a production repair. Official Replit documentation also warns that exposing multiple ports can cause publishing failures.
 
-**How to apply:** Confirm the current production service, compare its listening port with the published routing configuration, and check the live HTTP response rather than trusting build status alone. Publishing configuration corrections require the user to republish before they affect the live site.
+**How to apply:** Confirm the current production service and its port configuration, but do not infer the root cause from a generic 500 alone. Fetch startup logs again after a republish if earlier logs were unavailable. Verify live HTTP responses after the user republishes; never declare the live site fixed based only on local checks or build metadata.

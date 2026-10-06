@@ -12,6 +12,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx src/db/migrate.ts",
     "test": "vitest run",
+    "test:startup": "node --test tests/production-startup.test.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "next lint",

@@ -51,10 +51,10 @@ Branch `phase-3-automation-buzzsprout` until it merges to `main`.
 
 **Tools → Database.** Replit sets `DATABASE_URL` itself. Nothing else to do.
 
-**You do not need to create the schema.** `start:production` runs migrations
-before it serves a single request, and aborts the boot if they fail. An
-unmigrated database would fail every query and look like an application bug, so
-it fails loudly instead.
+**Replit's Publish flow applies production schema changes** by comparing the
+development and production databases. Review any rename or destructive-change
+prompts during publishing. `start:production` starts the server and worker; it
+does not run database migrations or overwrite production data.
 
 ### 3. Add Secrets
 
@@ -137,7 +137,7 @@ its own schedule.
 4. **Dashboard** shows the next show from the cadence, with a countdown.
 
 If ping never leaves `PENDING`, the worker is not running — check the deployment
-log for `worker.start`. If the boot failed on migrations or a missing secret, the
+log for `worker.start`. If the boot failed on a missing secret, the
 log says exactly which, and the app is deliberately not serving.
 
 ## Operational notes
@@ -145,9 +145,9 @@ log says exactly which, and the app is deliberately not serving.
 - **The filesystem is not durable.** A Replit republish discards it. Everything
   that must survive goes to Postgres. When master media arrives in a later
   phase it goes to object storage, never to disk.
-- **Migrations are not automatic.** `npm run db:migrate` is a deliberate manual
-  step. A deployment that silently migrates is a deployment that can silently
-  destroy data.
+- **Production schema belongs to Publish.** Do not run `npm run db:migrate`
+  against Replit's managed production database or add migrations to startup.
+  Keep development schema current, then review the schema diff when publishing.
 - **Stale jobs self-heal.** A worker that dies holding a job leaves it `RUNNING`;
   `reclaimStale()` requeues those on boot and every 60 seconds.
 - **Staging.** When integrations arrive, staging needs its own database *and its

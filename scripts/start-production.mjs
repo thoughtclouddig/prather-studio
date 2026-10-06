@@ -17,17 +17,10 @@
  * If either child exits, the supervisor exits non-zero so the platform restarts
  * the VM cleanly rather than leaving a half-running Studio.
  *
- * MIGRATIONS RUN FIRST, and a failure here aborts the boot.
- *
- * A fresh Replit Postgres comes up empty. Without this the web app would start,
- * answer requests, and fail on every query against tables that do not exist --
- * which looks like an application bug rather than a database that was never
- * set up. Failing loudly before anything serves traffic is the difference
- * between "deploy failed, here is why" and an hour of confused debugging.
- *
- * Drizzle's migrator records applied migrations in its own table, so this is
- * idempotent: every subsequent boot is a no-op. A Reserved VM is a single
- * instance, so there is no concurrent-migration race to guard against.
+ * Replit's Publish flow owns the managed production database schema.
+ * Do not run Drizzle migrations here: Publish may already have applied the
+ * schema change without updating Drizzle's migration journal. Replaying the
+ * migration would then crash startup on an existing column.
  */
 import { spawn } from "node:child_process";
 import { connect } from "node:net";
@@ -81,21 +74,6 @@ for (const signal of ["SIGINT", "SIGTERM"]) {
   process.on(signal, () => shutdown(0));
 }
 
-/** Run migrations to completion before anything serves traffic. */
-function migrate() {
-  return new Promise((resolve, reject) => {
-    log("migrating");
-    const child = spawn("npx", ["tsx", "--tsconfig", "worker/tsconfig.json", "src/db/migrate.ts"], {
-      stdio: ["ignore", "inherit", "inherit"],
-      env: process.env,
-    });
-    child.on("exit", (code) =>
-      code === 0 ? resolve() : reject(new Error(`migrations exited ${code}`)),
-    );
-    child.on("error", reject);
-  });
-}
-
 const port = process.env.PORT ?? "3000";
 
 // Fail fast on missing configuration rather than surfacing it as a runtime
@@ -113,19 +91,6 @@ if (missing.length > 0) {
 }
 
 log("starting", { port });
-
-try {
-  await migrate();
-  log("migrated");
-} catch (error) {
-  log("migration_failed", { error: error.message });
-  console.error(
-    "\nCannot start: database migrations failed.\n" +
-      "The app is NOT serving traffic, on purpose -- an unmigrated database " +
-      "would fail every query and look like an application bug.\n",
-  );
-  process.exit(1);
-}
 
 /**
  * Wait until the web server is actually accepting connections.
