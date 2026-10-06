@@ -193,12 +193,10 @@ export function PublicationRow({
 
       <td className="w-[210px] align-top">
         {/* A segmented SELECTOR, not a set of actions.
-            A filled green button labelled PUBLISH reads as "click to publish",
-            and an operator pressing it and seeing nothing happen reasonably
-            concludes the app is broken. It is a radio group showing the
-            current choice — so the selected one is marked, the unselected ones
-            are plainly inert, and the column says what it is. */}
-        <div className="eyebrow text-[9px] mb-1">Plan &mdash; not an action</div>
+            An earlier version repeated "PLAN — NOT AN ACTION" above every row,
+            which is eight lines of apology for a control that should simply
+            look like what it is. The column header says Plan; the selected
+            segment is filled and checked; the rest are plainly unselected. */}
         <form action={changeIntent} className="flex" role="radiogroup">
           <input type="hidden" name="publicationId" value={publication.id} />
           <input type="hidden" name="episodeId" value={episodeId} />
