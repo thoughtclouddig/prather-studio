@@ -1,10 +1,14 @@
 import Link from "next/link";
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { settings } from "@/db/schema";
 import { requireUser } from "@/lib/auth/require";
 import { Empty, Panel, StateBadge } from "@/components/ui";
 import { readCredential } from "@/lib/integrations/credentials";
 import {
   listProducts,
-  productUrl,
+  merchSlug,
+  merchUrl,
   PrintfulNotConnectedError,
   type PrintfulCredentialPayload,
 } from "@/lib/integrations/printful/client";
@@ -40,14 +44,22 @@ export default async function PrintfulInspectorPage() {
           : String(e);
   }
 
+  const [config] = await db.select().from(settings).where(eq(settings.id, "global")).limit(1);
+  const template = config?.merchUrlTemplate ?? null;
+
   const store = {
     website: credential?.website ?? null,
     type: credential?.storeType ?? null,
   };
 
-  const linkable = (products ?? []).filter(
-    (p) => productUrl(p, store).exact,
-  ).length;
+  const linkFor = (p: { id: number; externalId: string | null; name: string }) =>
+    merchUrl(template, {
+      slug: merchSlug(p.name),
+      printfulId: String(p.id),
+      externalId: p.externalId,
+    });
+
+  const linkable = (products ?? []).filter((p) => linkFor(p) !== null).length;
 
   return (
     <div className="stack">
@@ -74,9 +86,9 @@ export default async function PrintfulInspectorPage() {
           <>
             <div className="px-4 py-3 border-b border-[var(--color-ink-200)] grid gap-4 sm:grid-cols-3">
               <div>
-                <div className="eyebrow mb-1">Shop address</div>
-                <div className="mono text-[12px]">
-                  {store.website ?? "not known"}
+                <div className="eyebrow mb-1">Link template</div>
+                <div className="mono text-[12px] break-all">
+                  {template ?? "not set"}
                 </div>
               </div>
               <div>
@@ -94,11 +106,11 @@ export default async function PrintfulInspectorPage() {
 
             {linkable === 0 && (
               <p className="px-4 py-2.5 text-[12px] text-[var(--color-signal-amber)] leading-relaxed border-b border-[var(--color-ink-200)]">
-                No product here resolves to its own page. Printful returns a storefront id
-                but not a storefront URL, and only some platforms have a pattern the Studio
-                can build from. A merch block would have to link to the shop front rather
-                than to each item &mdash; which is honest, and still useful, but worth
-                deciding on purpose.
+                No link template is set, so none of these can be linked and the briefing
+                omits merch entirely. Set one in Settings once the shop&rsquo;s URLs are
+                decided &mdash; for example{" "}
+                <span className="mono">https://jeffreyprather.com/shop/&#123;slug&#125;</span>.
+                The slug below is what <span className="mono">&#123;slug&#125;</span> becomes.
               </p>
             )}
 
@@ -108,14 +120,14 @@ export default async function PrintfulInspectorPage() {
                   <tr>
                     <th>Product</th>
                     <th>Printful id</th>
-                    <th>Storefront id</th>
+                    <th>Slug</th>
                     <th>Variants</th>
                     <th>Link</th>
                   </tr>
                 </thead>
                 <tbody>
                   {(products ?? []).map((p) => {
-                    const link = productUrl(p, store);
+                    const link = linkFor(p);
                     return (
                       <tr key={p.id}>
                         <td className="align-top">
@@ -134,23 +146,23 @@ export default async function PrintfulInspectorPage() {
                           </div>
                         </td>
                         <td className="mono align-top">{p.id}</td>
-                        <td className="mono align-top">{p.externalId ?? "—"}</td>
+                        <td className="mono align-top text-[11px]">{merchSlug(p.name)}</td>
                         <td className="mono align-top">
                           {p.syncedCount}/{p.variantCount}
                         </td>
                         <td className="align-top">
-                          {link.url ? (
+                          {link ? (
                             <a
-                              href={link.url}
+                              href={link}
                               target="_blank"
                               rel="noreferrer noopener"
-                              className="link mono text-[11px]"
+                              className="link mono text-[11px] break-all"
                             >
-                              {link.exact ? link.url : "shop front only"}
+                              {link}
                             </a>
                           ) : (
                             <span className="text-[11px] text-[var(--color-type-lo)]">
-                              none
+                              no template
                             </span>
                           )}
                         </td>

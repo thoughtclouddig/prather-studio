@@ -10,9 +10,10 @@
  * property of the STOREFRONT, not of Printful.
  *
  * So this reads what Printful genuinely knows — the products, their images,
- * their retail prices — and treats the public link as something to be
- * established rather than assumed. `productUrl()` refuses to invent a link it
- * cannot derive: a merch block pointing at a 404 is worse than no merch block.
+ * their retail prices — and nothing else. The public link comes from the
+ * storefront side: `merchUrl()` fills a template configured in Settings,
+ * because the shop is part of OUR website and its URL scheme is a decision we
+ * make, not a third party's pattern to reverse-engineer.
  *
  * ## Auth
  *
@@ -206,24 +207,67 @@ export async function getProduct(id: number): Promise<PrintfulProductDetail> {
 }
 
 /**
- * The public URL for a product, or null when one cannot be derived.
+ * Slugify a product name for a shop URL.
  *
- * Deliberately conservative. Printful returns no storefront link, and the
- * mapping from its `external_id` to a public URL differs per platform —
- * Shopify uses a numeric product id, Etsy a listing id, a manual store may
- * have no public page at all. A guessed link 404s for every reader, which is
- * worse than sending them to the shop's front page and saying so.
+ * Stored rather than computed at render time: a product renamed in Printful
+ * would otherwise silently change the URL of a page that is already linked
+ * from emails that have gone out.
  */
-export function productUrl(
-  product: { externalId: string | null },
-  store: { website: string | null; type: string | null },
-): { url: string | null; exact: boolean } {
-  const base = store.website?.replace(/\/+$/, "") ?? null;
-  if (!base) return { url: null, exact: false };
+export function merchSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
 
-  if (store.type === "shopify" && product.externalId) {
-    return { url: `${base}/products/${product.externalId}`, exact: true };
+/**
+ * Build a merch item's public URL from the configured template.
+ *
+ * The storefront is part of OUR website — Printful fulfils the order, but the
+ * shop page is ours — so the URL scheme is a decision rather than a pattern to
+ * reverse-engineer from a third party. Earlier this tried to infer a link from
+ * the store platform, which was the right caution for somebody else's
+ * storefront and is simply the wrong model for our own.
+ *
+ * No template means no link, and the briefing omits the merch block entirely.
+ * A merch item linking nowhere is worse than one that is not there.
+ */
+export function merchUrl(
+  template: string | null | undefined,
+  item: { slug: string; printfulId: string; externalId?: string | null },
+): string | null {
+  const pattern = template?.trim();
+  if (!pattern) return null;
+
+  const values: Record<string, string> = {
+    slug: item.slug,
+    id: item.printfulId,
+    external_id: item.externalId ?? "",
+  };
+
+  let missing = false;
+  const filled = pattern.replace(/\{([a-z_]+)\}/gi, (_whole, token: string) => {
+    const value = values[token.toLowerCase()];
+    // An empty value is as broken as an unknown token — {external_id} on a
+    // store that reports none would collapse to a URL pointing at the shop
+    // root, which looks like a working link and is not the product.
+    if (!value) {
+      missing = true;
+      return "";
+    }
+    return encodeURIComponent(value);
+  });
+
+  if (missing) return null;
+
+  try {
+    const url = new URL(/^https?:\/\//i.test(filled) ? filled : `https://${filled}`);
+    return url.toString();
+  } catch {
+    return null;
   }
-
-  return { url: base, exact: false };
 }
