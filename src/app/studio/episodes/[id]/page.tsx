@@ -21,7 +21,7 @@ import { diagnosticsEnabled } from "@/lib/diagnostics";
 import { Empty, Panel, StateBadge } from "@/components/ui";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { episodeImages } from "@/db/schema";
+import { episodeImages, settings } from "@/db/schema";
 import { buildThumbnailBrief, slugFor } from "@/lib/images/thumbnail-brief";
 import { BuzzsproutAudioUpload } from "./buzzsprout-parts";
 import { RumbleHandoff } from "./rumble-parts";
@@ -29,6 +29,8 @@ import { CreateBuzzsproutDraft, CreateWordPressDraft } from "./publish-parts";
 import { ThumbnailStep } from "./thumbnail-parts";
 import { updateEpisodeAction } from "@/app/studio/actions";
 import { latestTranscript } from "@/lib/domain/transcripts";
+import { topicLines } from "@/lib/domain/intake";
+import { describeGap, resolveSendTime } from "@/lib/email/send-time";
 import { getIntegration } from "@/lib/integrations/credentials";
 import { formatTimestamp } from "@/lib/transcripts/parse";
 import { DraftCard, EpisodeForm, PublicationRow } from "./parts";
@@ -36,6 +38,7 @@ import {
   FetchCaptionsButton,
   RegenerateContentButton,
   RunPackageButton,
+  RunPreShowButton,
   UnlinkYouTubeButton,
 } from "./pipeline";
 
@@ -116,6 +119,23 @@ export default async function EpisodeWorkspace({
         eq(episodeImages.state, "ACCEPTED"),
       ),
     );
+  const mailchimpPub = publications.find((p) => p.platform === "MAILCHIMP");
+
+  // The send time is shown on the episode page, not only on the briefing page,
+  // because "when does this go out" is the question asked while scanning the
+  // morning's work — not after committing to open a sub-page.
+  const [config] = await db.select().from(settings).where(eq(settings.id, "global")).limit(1);
+  const sendTime = episode.scheduledAt
+    ? resolveSendTime({
+        scheduledAt: episode.scheduledAt,
+        sendTime: config?.emailSendTime,
+        sendTimezone: config?.emailSendTimezone,
+      })
+    : null;
+
+  const hostTopicCount = topicLines(episode.hostTopics).length;
+  const emailDrafts = liveDrafts.filter((d) => d.field.startsWith("email_"));
+
   const linkedVideoId = youtubePub?.externalId ?? null;
   const youtubeConnected = youtubeIntegration?.health === "CONNECTED";
   const transcript = transcriptResult?.transcript ?? null;
@@ -175,10 +195,233 @@ export default async function EpisodeWorkspace({
         <EpisodeForm episode={episode} canEdit={canEdit} action={updateEpisodeAction} />
       </Panel>
 
-      {/* ------------------------------------------------------ PRODUCTION */}
+      {/* ---------------------------------------------- BEFORE THE SHOW */}
+      {/* These three steps need only what Jeff submitted in the morning. They
+          used to sit below the transcript-dependent ones, which put the day's
+          first work at the bottom of the page and implied the email had to
+          wait for captions that do not exist until hours after it has gone
+          out. The order on screen now matches the order of the day. */}
       <Panel
-        eyebrow="Production"
-        title="Real show to reviewable package"
+        eyebrow="Before the show"
+        title="From Jeff&rsquo;s submission, hours before air"
+        actions={
+          sendTime ? (
+            <span className="mono">briefing sends {sendTime.label}</span>
+          ) : (
+            <span className="mono">no air date</span>
+          )
+        }
+      >
+        <table className="grid-table">
+          <tbody>
+            {/* 1 — the morning form. Everything pre-show reads from this. */}
+            <tr>
+              <td className="w-[150px] align-top">
+                <span className="eyebrow">1 &middot; Submission</span>
+              </td>
+              <td className="w-[160px] align-top">
+                <StateBadge
+                  tone={episode.hostHeadline ? "done" : "muted"}
+                  label={episode.hostHeadline ? "Received" : "Not submitted"}
+                />
+              </td>
+              <td className="align-top">
+                {episode.hostHeadline ? (
+                  <div className="space-y-1">
+                    <p className="text-[12px] leading-snug">
+                      &ldquo;{episode.hostHeadline}&rdquo;
+                    </p>
+                    <p className="text-[11px] text-[var(--color-type-lo)]">
+                      {hostTopicCount} topic{hostTopicCount === 1 ? "" : "s"}
+                      {episode.hostBrief ? " · write-up supplied" : " · no write-up"}
+                      {episode.submittedAt ? ` · ${relative(episode.submittedAt)}` : ""}
+                    </p>
+                  </div>
+                ) : (
+                  <span className="text-[12px] text-[var(--color-type-lo)]">
+                    Jeff has not filled the form for this show yet. His headline is what
+                    the thumbnail and the email are built from.
+                  </span>
+                )}
+              </td>
+              <td className="w-[210px] align-top text-right">
+                <Link href="/submit" className="btn btn-xs btn-ghost" target="_blank">
+                  Open the form
+                </Link>
+              </td>
+            </tr>
+
+            {/* 2 — Claude, reading the submission rather than a transcript */}
+            <tr>
+              <td className="align-top">
+                <span className="eyebrow">2 &middot; Email copy</span>
+              </td>
+              <td className="align-top">
+                <StateBadge
+                  tone={
+                    emailDrafts.some((d) => d.state === "APPROVED")
+                      ? "done"
+                      : emailDrafts.length > 0
+                        ? "waiting"
+                        : episode.hostHeadline
+                          ? "ready"
+                          : "muted"
+                  }
+                  label={
+                    emailDrafts.some((d) => d.state === "APPROVED")
+                      ? "Approved"
+                      : emailDrafts.length > 0
+                        ? "Awaiting review"
+                        : episode.hostHeadline
+                          ? "Not run"
+                          : "Waiting on Jeff"
+                  }
+                />
+              </td>
+              <td className="align-top">
+                <span className="text-[12px] text-[var(--color-type-lo)]">
+                  {emailDrafts.length > 0
+                    ? "Three subject lines, a preview line, the brief and his bullets — all PROPOSED until approved in Review."
+                    : "Reads his headline, topics and write-up. No transcript required, so this can run the moment he submits."}
+                </span>
+              </td>
+              <td className="align-top text-right">
+                {canEdit && (
+                  <RunPreShowButton
+                    episodeId={episode.id}
+                    disabled={!episode.hostHeadline}
+                    hasDrafts={emailDrafts.length > 0}
+                  />
+                )}
+              </td>
+            </tr>
+
+            {/* 3 — the only step that reaches an audience by itself */}
+            <tr>
+              <td className="align-top">
+                <span className="eyebrow">3 &middot; Briefing</span>
+              </td>
+              <td className="align-top">
+                <StateBadge
+                  tone={
+                    mailchimpPub?.state === "SCHEDULED"
+                      ? "done"
+                      : emailDrafts.some((d) => d.state === "APPROVED")
+                        ? "ready"
+                        : "muted"
+                  }
+                  label={
+                    mailchimpPub?.state === "SCHEDULED"
+                      ? "Scheduled"
+                      : emailDrafts.some((d) => d.state === "APPROVED")
+                        ? "Ready to schedule"
+                        : "Awaiting approved copy"
+                  }
+                />
+              </td>
+              <td className="align-top">
+                {sendTime ? (
+                  <span className="text-[12px] text-[var(--color-type-lo)]">
+                    Goes out{" "}
+                    <strong className="text-[var(--color-type-mid)]">
+                      {sendTime.label}
+                    </strong>{" "}
+                    &mdash; {describeGap(sendTime.gapToAirMinutes)}. Scheduled in
+                    Mailchimp as a draft; nothing is ever sent on sight.
+                  </span>
+                ) : (
+                  <span className="text-[12px] text-[var(--color-type-lo)]">
+                    Set an air date before scheduling the briefing.
+                  </span>
+                )}
+              </td>
+              <td className="align-top text-right">
+                <Link
+                  href={`/studio/episodes/${episode.id}/briefing`}
+                  className={`btn btn-xs ${
+                    mailchimpPub?.state !== "SCHEDULED" &&
+                    emailDrafts.some((d) => d.state === "APPROVED")
+                      ? "btn-primary"
+                      : ""
+                  }`}
+                >
+                  {mailchimpPub?.state === "SCHEDULED" ? "View briefing" : "Review & schedule"}
+                </Link>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Panel>
+
+      {/* -------------------------------------------------- THUMBNAIL
+          The brief goes out, the images come back. The operator's ChatGPT
+          thread carries months of previous thumbnails and produces excellent
+          work every week; the same brief sent to the image API did not. So
+          the Studio removes the steps around that process rather than trying
+          to replace it. */}
+      <Panel
+        eyebrow="Before the show"
+        title="4 &middot; Thumbnail — brief out, artwork back"
+        actions={
+          <StateBadge
+            tone={
+              images.some((i) => i.kind === "THUMBNAIL_16_9") &&
+              images.some((i) => i.kind === "THUMBNAIL_1_1")
+                ? "done"
+                : images.length > 0
+                  ? "waiting"
+                  : "muted"
+            }
+            label={
+              images.some((i) => i.kind === "THUMBNAIL_16_9") &&
+              images.some((i) => i.kind === "THUMBNAIL_1_1")
+                ? "Both uploaded"
+                : images.length > 0
+                  ? "One of two"
+                  : "Not started"
+            }
+          />
+        }
+      >
+        {/* The headline comes from Jeff's submission, not from the
+            transcript. Blocking the artwork until captions arrive made the
+            thumbnail wait hours for a headline he had already written that
+            morning — the ordering was backwards. An approved editorial
+            headline still wins when one exists. */}
+        <ThumbnailStep
+          episodeId={episode.id}
+          headlineSource={
+            episode.approvedTitle
+              ? "approved"
+              : episode.hostHeadline
+                ? "host"
+                : "none"
+          }
+          brief={buildThumbnailBrief({
+            headline:
+              episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
+            slug: slugFor(
+              episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
+            ),
+          })}
+          hasHeadline={!!(episode.approvedTitle ?? episode.hostHeadline)}
+          youtubeLinked={!!youtubePub?.externalId}
+          existing={images.map((i) => ({
+            kind: i.kind,
+            id: i.id,
+            width: i.width,
+            height: i.height,
+          }))}
+        />
+      </Panel>
+
+      {/* ----------------------------------------------- AFTER THE SHOW */}
+      {/* Everything here depends on the recording existing. The transcript is
+          the gate, and it is not ours to hurry — YouTube's auto-captions can
+          take hours after a stream ends. Nothing above this panel waits on it. */}
+      <Panel
+        eyebrow="After the show"
+        title="Recording to reviewable package"
         actions={
           <span className="mono">
             {youtubeConnected ? "YouTube connected" : "YouTube not connected"}
@@ -187,10 +430,10 @@ export default async function EpisodeWorkspace({
       >
         <table className="grid-table">
           <tbody>
-            {/* 1 — the canonical link to what already exists on YouTube */}
+            {/* 5 — the canonical link to what already exists on YouTube */}
             <tr>
               <td className="w-[150px] align-top">
-                <span className="eyebrow">1 · YouTube video</span>
+                <span className="eyebrow">5 &middot; YouTube video</span>
               </td>
               <td className="w-[160px] align-top">
                 <StateBadge
@@ -226,10 +469,10 @@ export default async function EpisodeWorkspace({
               </td>
             </tr>
 
-            {/* 2 — the transcript, which everything downstream reads */}
+            {/* 6 — the transcript, which everything downstream reads */}
             <tr>
               <td className="align-top">
-                <span className="eyebrow">2 · Transcript</span>
+                <span className="eyebrow">6 &middot; Transcript</span>
               </td>
               <td className="align-top">
                 <StateBadge
@@ -264,10 +507,10 @@ export default async function EpisodeWorkspace({
               </td>
             </tr>
 
-            {/* 3 — Claude, writing only into PROPOSED drafts */}
+            {/* 7 — Claude, writing only into PROPOSED drafts */}
             <tr>
               <td className="align-top">
-                <span className="eyebrow">3 · Content engine</span>
+                <span className="eyebrow">7 &middot; Content engine</span>
               </td>
               <td className="align-top">
                 <StateBadge
@@ -309,10 +552,10 @@ export default async function EpisodeWorkspace({
               </td>
             </tr>
 
-            {/* 4 — the write, gated on approval */}
+            {/* 8 — the write, gated on approval */}
             <tr>
               <td className="align-top">
-                <span className="eyebrow">4 · YouTube metadata</span>
+                <span className="eyebrow">8 &middot; YouTube metadata</span>
               </td>
               <td className="align-top">
                 <StateBadge
@@ -456,68 +699,6 @@ export default async function EpisodeWorkspace({
         </Panel>
 
         {/* --------------------------------------------------- ACTIVITY */}
-        {/* -------------------------------------------------- THUMBNAIL
-            The brief goes out, the images come back. The operator's ChatGPT
-            thread carries months of previous thumbnails and produces excellent
-            work every week; the same brief sent to the image API did not. So
-            the Studio removes the steps around that process rather than trying
-            to replace it. */}
-        <Panel
-          eyebrow="Thumbnail"
-          title="Brief out, artwork back"
-          actions={
-            <StateBadge
-              tone={
-                images.some((i) => i.kind === "THUMBNAIL_16_9") &&
-                images.some((i) => i.kind === "THUMBNAIL_1_1")
-                  ? "done"
-                  : images.length > 0
-                    ? "waiting"
-                    : "muted"
-              }
-              label={
-                images.some((i) => i.kind === "THUMBNAIL_16_9") &&
-                images.some((i) => i.kind === "THUMBNAIL_1_1")
-                  ? "Both uploaded"
-                  : images.length > 0
-                    ? "One of two"
-                    : "Not started"
-              }
-            />
-          }
-        >
-          {/* The headline comes from Jeff's submission, not from the
-              transcript. Blocking the artwork until captions arrive made the
-              thumbnail wait hours for a headline he had already written that
-              morning — the ordering was backwards. An approved editorial
-              headline still wins when one exists. */}
-          <ThumbnailStep
-            episodeId={episode.id}
-            headlineSource={
-              episode.approvedTitle
-                ? "approved"
-                : episode.hostHeadline
-                  ? "host"
-                  : "none"
-            }
-            brief={buildThumbnailBrief({
-              headline:
-                episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
-              slug: slugFor(
-                episode.approvedTitle ?? episode.hostHeadline ?? episode.workingTitle,
-              ),
-            })}
-            hasHeadline={!!(episode.approvedTitle ?? episode.hostHeadline)}
-            youtubeLinked={!!youtubePub?.externalId}
-            existing={images.map((i) => ({
-              kind: i.kind,
-              id: i.id,
-              width: i.width,
-              height: i.height,
-            }))}
-          />
-        </Panel>
-
         {/* ------------------------------------------------------ RUMBLE
             Rumble exposes no metadata write for an existing video, so this is
             a handoff rather than a publish. Tracking the paste beats pretending

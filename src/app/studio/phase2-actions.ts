@@ -36,6 +36,7 @@ import {
 } from "@/lib/integrations/youtube/client";
 import { PROMPT_VERSION } from "@/lib/content/package";
 import { PRE_SHOW_PROMPT_VERSION } from "@/lib/content/pre-show";
+import { scheduleBriefingCampaign } from "@/lib/domain/briefing-campaign";
 import { recordActivity } from "@/lib/domain/activity";
 import { enqueue } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
@@ -305,6 +306,28 @@ export async function regenerateContentAction(
  * genuinely new key and regenerates, which is the behaviour an operator
  * expects after he sends a correction.
  */
+/**
+ * Schedule the briefing campaign in Mailchimp.
+ *
+ * The one action in the Studio that reaches an audience without a second
+ * human step afterwards, so it is deliberately narrow: it schedules, it never
+ * sends, and everything it refuses it refuses loudly. The send time comes from
+ * Settings (11:00 America/Phoenix by default), not from this form — an
+ * operator choosing a one-off time in a hurry is how a briefing goes out at
+ * an hour nobody meant.
+ */
+export async function scheduleBriefingAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+    const result = await scheduleBriefingCampaign(episodeId, user);
+    return `Scheduled in Mailchimp for ${result.sendSummary}. It is a draft until then — nothing has been sent.`;
+  }, episodePaths(episodeId));
+}
+
 export async function runPreShowAction(
   _prev: ActionState,
   formData: FormData,
