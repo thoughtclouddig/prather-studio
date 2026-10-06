@@ -1,0 +1,1 @@
+- [Published port routing](published-port-routing.md) — VM publishing needs one exposed port; successful build metadata does not prove the live app is reachable.
