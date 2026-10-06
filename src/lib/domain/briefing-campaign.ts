@@ -35,6 +35,7 @@ import {
   sponsors,
   type User,
 } from "@/db/schema";
+import { appBaseUrl } from "@/lib/app-url";
 import { recordActivity, type Actor } from "@/lib/domain/activity";
 import { topicLines } from "@/lib/domain/intake";
 import {
@@ -152,6 +153,10 @@ export async function previewBriefing(episodeId: string): Promise<BriefingPrevie
     dateLabel: formatDate(airAt, show?.timezone ?? "America/New_York"),
     airTimeLabel: formatAirTime(airAt, show?.timezone ?? "America/New_York"),
     credentialLine: show?.credentialLine ?? "",
+    // Absolute, always — a relative src is a broken image in every mail
+    // client there is. Settings can point this at Mailchimp's own hosting
+    // so an archived briefing survives this deployment.
+    logoUrl: config?.emailLogoUrl?.trim() || `${appBaseUrl()}/brand/prather-point-email.png`,
     sponsors: sponsorRows.map((s) => ({ name: s.name, url: s.url, offer: s.offer })),
     patreonUrl: config?.patreonUrl ?? null,
     signOff: pick("email_preview"),

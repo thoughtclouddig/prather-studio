@@ -76,6 +76,24 @@ describe("it has to survive real email clients", () => {
     expect(html).toMatch(/<a href="[^"]*" style="display:block/);
   });
 
+  it("renders the logo so a blocked image still shows a masthead", () => {
+    const html = renderBriefingEmail({ ...email, logoUrl: "https://x.test/logo.png" });
+    // Outlook blocks images by default, so the alt text carries the wordmark
+    // in the same weight rather than leaving a broken-image icon.
+    expect(html).toMatch(/<img src="https:\/\/x\.test\/logo\.png"/);
+    expect(html).toMatch(/alt="THE PRATHER POINT"/);
+    expect(html).toMatch(/<img[^>]*font-weight:700/);
+    // Attributes as well as styles: Outlook reads the attribute, and an
+    // undeclared height reflows the masthead while the image loads.
+    expect(html).toMatch(/<img[^>]*width="220"[^>]*height="72"/);
+  });
+
+  it("falls back to the typographic wordmark when no logo is set", () => {
+    const html = renderBriefingEmail({ ...email, logoUrl: null });
+    expect(html).not.toMatch(/<img/);
+    expect(html).toContain("THE PRATHER POINT");
+  });
+
   it("builds the button as a bgcolor table cell", () => {
     const html = renderBriefingEmail(email);
     expect(html).toMatch(/<td bgcolor="#c8102e"/);

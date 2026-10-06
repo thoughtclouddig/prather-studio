@@ -63,6 +63,12 @@ export interface BriefingEmail {
   /** e.g. "2:00 PM ET" */
   airTimeLabel: string;
   credentialLine: string;
+  /**
+   * The masthead logo, as an absolute URL. Null falls back to the
+   * typographic wordmark, which is also what a reader with images blocked
+   * sees — the `alt` carries the same words in the same weight.
+   */
+  logoUrl?: string | null;
   sponsors: EmailSponsor[];
   patreonUrl: string | null;
   signOff?: string | null;
@@ -228,10 +234,20 @@ export function renderBriefingEmail(input: BriefingEmail): string {
 
     <!-- masthead -->
     <tr><td class="gutter" style="padding:24px ${GUTTER} 16px;border-bottom:1px solid ${RULE};background:${PANEL};">
-      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
+      ${
+        input.logoUrl
+          ? // Width and height are ATTRIBUTES as well as styles: Outlook reads
+            // the attribute and ignores the style, and a logo with no declared
+            // height reflows the whole masthead while it loads. The alt text is
+            // styled to match the wordmark below, so a client with images
+            // blocked — Outlook, by default — still renders a masthead rather
+            // than a broken-image icon.
+            `<img src="${escape(input.logoUrl)}" width="220" height="72" alt="THE PRATHER POINT" style="display:block;width:220px;max-width:220px;height:auto;border:0;font-family:${FONT};font-size:17px;font-weight:700;letter-spacing:0.01em;color:${TEXT};text-decoration:none;" />`
+          : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>
         <td style="vertical-align:middle;width:4px;"><div style="width:4px;height:26px;background:${RED};font-size:0;line-height:0;">&nbsp;</div></td>
         <td style="padding-left:12px;font-family:${FONT};font-size:17px;font-weight:700;letter-spacing:0.01em;color:${TEXT};">THE PRATHER POINT</td>
-      </tr></table>
+      </tr></table>`
+      }
       <div style="margin-top:8px;font-family:${FONT};font-size:13px;line-height:1.4;color:${MUTED};">${escape(
         input.credentialLine,
       )}</div>

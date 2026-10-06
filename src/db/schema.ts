@@ -271,6 +271,13 @@ export const settings = pgTable("settings", {
    *    before it in winter. That is a real editorial fact, not a bug, and
    *    deriving the send time from air time would hide it.
    */
+  /**
+   * Masthead logo for the briefing, absolute URL. Null uses the app's own
+   * copy. It is a setting rather than a constant so the image can be moved to
+   * Mailchimp's own hosting without a deploy — an email lives in archives and
+   * forwards for years, and the URL in it has to outlive this deployment.
+   */
+  emailLogoUrl: text("email_logo_url"),
   emailSendTime: text("email_send_time"),
   emailSendTimezone: text("email_send_timezone"),
   /** Real Jeff writing. Seeds the future content engine; nothing reads it yet. */

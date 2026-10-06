@@ -78,6 +78,13 @@
       "when": 1791307295791,
       "tag": "0010_quiet_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791307295792,
+      "tag": "0011_bright_masthead",
+      "breakpoints": true
     }
   ]
 }
