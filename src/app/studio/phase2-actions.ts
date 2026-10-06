@@ -25,7 +25,11 @@ import {
 } from "@/lib/integrations/wordpress/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
-import { listRecentVideos, setThumbnail } from "@/lib/integrations/youtube/client";
+import {
+  listRecentVideos,
+  listUpcomingBroadcasts,
+  setThumbnail,
+} from "@/lib/integrations/youtube/client";
 import { PROMPT_VERSION } from "@/lib/content/package";
 import { recordActivity } from "@/lib/domain/activity";
 import { enqueue } from "@/lib/queue/queue";
@@ -133,7 +137,22 @@ export async function loadCandidates(episodeId: string) {
     .limit(1);
   if (!episode) throw new Error("Episode not found");
 
-  const videos = await listRecentVideos(25);
+  // Uploads AND scheduled broadcasts. A stream StreamYard has scheduled is not
+  // in the uploads playlist until it airs, so without the second call an
+  // episode could not be linked — and its thumbnail could not be set — until
+  // the show was already running. Which is exactly too late.
+  const [uploads, upcoming] = await Promise.all([
+    listRecentVideos(25),
+    listUpcomingBroadcasts(10).catch(() => []),
+  ]);
+
+  // Upcoming first: when a broadcast appears in both, the live record is the
+  // one carrying the scheduled start time the matcher keys on.
+  const seen = new Set<string>();
+  const videos = [...upcoming, ...uploads].filter((v) =>
+    seen.has(v.id) ? false : (seen.add(v.id), true),
+  );
+
   return candidatesForEpisode(episode, videos);
 }
 
