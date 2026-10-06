@@ -9,11 +9,18 @@ import {
   linkYouTubeVideo,
   unlinkYouTubeVideo,
 } from "@/lib/domain/linkage";
-import { applyYouTubeUpdate } from "@/lib/domain/youtube-publish";
+import { applyYouTubeUpdate, buildApprovedMetadata } from "@/lib/domain/youtube-publish";
+import { composePostBody, resolveRumbleEmbed } from "@/lib/domain/wordpress-post";
+import { slugFor } from "@/lib/images/thumbnail-brief";
 import { disconnect, saveCredential } from "@/lib/integrations/credentials";
-import { verifyToken } from "@/lib/integrations/buzzsprout/client";
 import {
+  createDraftEpisode,
+  verifyToken,
+} from "@/lib/integrations/buzzsprout/client";
+import {
+  createDraftPost,
   normalizeSiteUrl,
+  uploadMedia,
   verifyCredentials,
 } from "@/lib/integrations/wordpress/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
@@ -263,6 +270,242 @@ export async function regenerateContentAction(
     });
 
     return `Cleared ${cleared.length} draft(s). A fresh package is queued.`;
+  }, episodePaths(episodeId));
+}
+
+/* --------------------------------------------- Buzzsprout & WordPress */
+
+/** The square thumbnail, if one has been accepted. Used in three places. */
+async function squareThumbnail(episodeId: string) {
+  const [image] = await db
+    .select()
+    .from(episodeImages)
+    .where(
+      and(
+        eq(episodeImages.episodeId, episodeId),
+        eq(episodeImages.kind, "THUMBNAIL_1_1"),
+        eq(episodeImages.state, "ACCEPTED"),
+      ),
+    )
+    .limit(1);
+  return image ?? null;
+}
+
+/**
+ * Create the Buzzsprout episode as a private draft, with artwork, before the
+ * audio exists.
+ *
+ * The show notes can be written, reviewed and approved well before a recording
+ * is exported. Requiring audio first inverted the order the work actually
+ * happens in, and left the podcast as the last thing done on a show day rather
+ * than something already waiting.
+ *
+ * Private is Buzzsprout's draft state, and since Buzzsprout documents no
+ * DELETE, private is also the only kind of mistake that can be walked back.
+ */
+export async function createBuzzsproutDraftAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+
+    const [episode] = await db
+      .select()
+      .from(episodes)
+      .where(eq(episodes.id, episodeId))
+      .limit(1);
+    if (!episode) throw new Error("Episode not found.");
+
+    const [publication] = await db
+      .select()
+      .from(episodePublications)
+      .where(
+        and(
+          eq(episodePublications.episodeId, episodeId),
+          eq(episodePublications.platform, "BUZZSPROUT"),
+        ),
+      )
+      .limit(1);
+
+    if (publication?.externalId) {
+      throw new Error(
+        `This episode is already linked to Buzzsprout episode ${publication.externalId}.`,
+      );
+    }
+
+    const approved = await buildApprovedMetadata(episodeId);
+    const title = approved.title ?? episode.approvedTitle;
+    if (!title) {
+      throw new Error("Approve a headline first — the draft carries it to Buzzsprout.");
+    }
+
+    const square = await squareThumbnail(episodeId);
+
+    const created = await createDraftEpisode({
+      title,
+      description: approved.composedDescription ?? undefined,
+      episodeNumber: episode.episodeNumber,
+      artwork: square
+        ? {
+            bytes: square.bytes,
+            contentType: square.contentType,
+            filename: "artwork.jpg",
+          }
+        : null,
+    });
+
+    const now = new Date();
+    await db
+      .update(episodePublications)
+      .set({
+        externalId: String(created.id),
+        externalUrl: created.audioUrl,
+        state: "SCHEDULED",
+        lastSyncAt: now,
+        errorMessage: null,
+        updatedAt: now,
+      })
+      .where(eq(episodePublications.id, publication!.id));
+
+    await recordActivity({
+      actor: { kind: "user", id: user.id, name: user.name },
+      verb: "buzzsprout.draft_created",
+      subjectType: "publication",
+      subjectId: publication!.id,
+      episodeId,
+      summary:
+        `Created Buzzsprout episode ${created.id} as a PRIVATE draft` +
+        (square ? " with the square artwork" : " (no artwork yet)") +
+        ". Audio and publishing are still outstanding.",
+      after: { buzzsproutId: created.id, hadArtwork: !!square },
+    });
+
+    return (
+      `Created Buzzsprout episode ${created.id} as a private draft` +
+      (square ? " with artwork." : ". Upload the square thumbnail to add artwork.")
+    );
+  }, episodePaths(episodeId));
+}
+
+/**
+ * Create the episode post on jeffreyprather.com, as a draft.
+ *
+ * The 1:1 thumbnail becomes the featured image — the operator's choice, and the
+ * right one, since the square survives the theme's cropping at every size.
+ *
+ * The Rumble URL is supplied by the operator because Rumble exposes no VOD
+ * listing; it is resolved through oEmbed rather than turned into an iframe by
+ * hand, since the page slug and the embed id are different strings and building
+ * the player from the page URL yields an embed that plays nothing.
+ */
+export async function createWordPressDraftAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  const rumbleUrl = String(formData.get("rumbleUrl") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+
+    const [episode] = await db
+      .select()
+      .from(episodes)
+      .where(eq(episodes.id, episodeId))
+      .limit(1);
+    if (!episode) throw new Error("Episode not found.");
+
+    const approved = await buildApprovedMetadata(episodeId);
+    const title = approved.title ?? episode.approvedTitle;
+    if (!title) {
+      throw new Error("Approve a headline first — it becomes the post title.");
+    }
+
+    const embed = rumbleUrl ? await resolveRumbleEmbed(rumbleUrl) : null;
+
+    const [youtubePub] = await db
+      .select()
+      .from(episodePublications)
+      .where(
+        and(
+          eq(episodePublications.episodeId, episodeId),
+          eq(episodePublications.platform, "YOUTUBE"),
+        ),
+      )
+      .limit(1);
+
+    // Featured image first: a post created without it would need a second call
+    // to attach one, and a failure there would leave a post with no artwork.
+    const square = await squareThumbnail(episodeId);
+    let featuredMediaId: number | undefined;
+    if (square) {
+      const uploaded = await uploadMedia(
+        new Blob([new Uint8Array(square.bytes)], { type: square.contentType }),
+        `${slugFor(title)}-1024x1024.jpg`,
+        square.contentType,
+      );
+      featuredMediaId = uploaded.id;
+    }
+
+    const body = composePostBody({
+      embedHtml: embed?.html ?? null,
+      summary: approved.descriptionBody,
+      chapters: approved.chapters,
+      youtubeUrl: youtubePub?.externalUrl ?? null,
+      podcastUrl: null,
+      standingBlocks: null,
+    });
+
+    const post = await createDraftPost({
+      title,
+      content: body,
+      slug: slugFor(title),
+      ...(featuredMediaId ? { featuredMediaId } : {}),
+    });
+
+    const [publication] = await db
+      .select()
+      .from(episodePublications)
+      .where(
+        and(
+          eq(episodePublications.episodeId, episodeId),
+          eq(episodePublications.platform, "WORDPRESS"),
+        ),
+      )
+      .limit(1);
+
+    const now = new Date();
+    if (publication) {
+      await db
+        .update(episodePublications)
+        .set({
+          externalId: String(post.id),
+          externalUrl: post.link,
+          state: "SCHEDULED",
+          lastSyncAt: now,
+          errorMessage: null,
+          updatedAt: now,
+        })
+        .where(eq(episodePublications.id, publication.id));
+    }
+
+    await recordActivity({
+      actor: { kind: "user", id: user.id, name: user.name },
+      verb: "wordpress.draft_created",
+      subjectType: "publication",
+      subjectId: publication?.id,
+      episodeId,
+      summary:
+        `Created WordPress draft post ${post.id}` +
+        (featuredMediaId ? " with the square as featured image" : " (no featured image)") +
+        (embed ? " and the Rumble embed" : " and no Rumble embed") +
+        ". It is a DRAFT — publish it in WordPress.",
+      after: { postId: post.id, link: post.link, featuredMediaId, rumbleUrl },
+    });
+
+    return `Created WordPress draft ${post.id}. It is a draft — publish it in WordPress.`;
   }, episodePaths(episodeId));
 }
 

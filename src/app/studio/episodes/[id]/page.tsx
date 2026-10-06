@@ -24,6 +24,7 @@ import { db } from "@/db/client";
 import { episodeImages } from "@/db/schema";
 import { buildThumbnailBrief, slugFor } from "@/lib/images/thumbnail-brief";
 import { BuzzsproutAudioUpload } from "./buzzsprout-parts";
+import { CreateBuzzsproutDraft, CreateWordPressDraft } from "./publish-parts";
 import { ThumbnailStep } from "./thumbnail-parts";
 import { updateEpisodeAction } from "@/app/studio/actions";
 import { latestTranscript } from "@/lib/domain/transcripts";
@@ -88,6 +89,7 @@ export default async function EpisodeWorkspace({
 
   const youtubePub = publications.find((p) => p.platform === "YOUTUBE");
   const buzzsproutPub = publications.find((p) => p.platform === "BUZZSPROUT");
+  const wordpressPub = publications.find((p) => p.platform === "WORDPRESS");
 
   // Only the current ones. Superseded attempts are history, not the picture.
   const images = await db
@@ -519,6 +521,15 @@ export default async function EpisodeWorkspace({
             />
           }
         >
+          {!buzzsproutPub?.externalId && (
+            <div className="px-4 pt-3.5">
+              <CreateBuzzsproutDraft
+                episodeId={episode.id}
+                hasHeadline={!!episode.approvedTitle}
+                hasSquare={images.some((i) => i.kind === "THUMBNAIL_1_1")}
+              />
+            </div>
+          )}
           <BuzzsproutAudioUpload
             episodeId={episode.id}
             hasAudio={!!buzzsproutPub?.externalUrl}
@@ -529,6 +540,36 @@ export default async function EpisodeWorkspace({
                   "title and show notes with it, and audio does not bypass review."
             }
           />
+        </Panel>
+
+        {/* -------------------------------------------------- WORDPRESS */}
+        <Panel
+          eyebrow="WordPress"
+          title="The episode post — draft only"
+          actions={
+            <StateBadge
+              tone={wordpressPub?.externalId ? "done" : "muted"}
+              label={wordpressPub?.externalId ? `Post ${wordpressPub.externalId}` : "Not created"}
+            />
+          }
+        >
+          <div className="px-4 py-3.5">
+            {wordpressPub?.externalUrl ? (
+              <p className="text-[12px] leading-relaxed">
+                Draft created.{" "}
+                <a href={wordpressPub.externalUrl} className="link" target="_blank" rel="noreferrer">
+                  Open it in WordPress
+                </a>{" "}
+                to review and publish.
+              </p>
+            ) : (
+              <CreateWordPressDraft
+                episodeId={episode.id}
+                hasHeadline={!!episode.approvedTitle}
+                hasSquare={images.some((i) => i.kind === "THUMBNAIL_1_1")}
+              />
+            )}
+          </div>
         </Panel>
 
         <Panel
