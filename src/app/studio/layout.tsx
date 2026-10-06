@@ -60,9 +60,9 @@ export default async function StudioLayout({
             reading the interface. */}
         <p className="mono text-[10px]">
           Real adapters: YouTube (read &amp; write), Rumble (observed only &mdash; no
-          upload, no metadata write), Buzzsprout, WordPress (drafts only). Mailchimp,
-          OpusClip and Locals have no adapter yet; their publish actions are simulated
-          and labelled as such.
+          upload, no metadata write), Buzzsprout, WordPress (drafts only), Mailchimp
+          (drafted and scheduled, never sent on sight). OpusClip and Locals have no
+          adapter yet; their publish actions are simulated and labelled as such.
         </p>
       </footer>
     </div>

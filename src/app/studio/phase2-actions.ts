@@ -24,6 +24,10 @@ import {
   verifyCredentials,
 } from "@/lib/integrations/wordpress/client";
 import { testConnection } from "@/lib/integrations/rumble/observer";
+import {
+  datacenterFromKey,
+  verifyKey,
+} from "@/lib/integrations/mailchimp/client";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
 import {
   listRecentVideos,
@@ -330,6 +334,55 @@ export async function runPreShowAction(
 
     return "Preparing the email from Jeff's submission. It will appear in Review.";
   }, episodePaths(episodeId));
+}
+
+/* ------------------------------------------------------------ Mailchimp */
+
+export async function connectMailchimpAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const apiKey = String(formData.get("apiKey") ?? "").trim();
+  const requestedList = String(formData.get("listId") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!apiKey) throw new Error("Paste the Mailchimp API key.");
+
+    const account = await verifyKey(apiKey);
+    if (account.audiences.length === 0) {
+      throw new Error("That key is valid but reaches no audiences.");
+    }
+
+    // An operator picks from the list rather than pasting an id. A wrong list
+    // id is a briefing sent to the wrong people, and Mailchimp will not say it
+    // was wrong — only that it worked.
+    const chosen = requestedList
+      ? account.audiences.find((a) => a.id === requestedList)
+      : account.audiences.length === 1
+        ? account.audiences[0]
+        : account.audiences.find((a) => a.id === "6f7bc677e9");
+
+    if (!chosen) {
+      throw new Error(
+        `This key reaches ${account.audiences.length} audiences (` +
+          account.audiences.map((a) => `${a.id} ${a.name}`).join(", ") +
+          "). Enter the audience ID to say which one.",
+      );
+    }
+
+    await saveCredential({
+      provider: "MAILCHIMP",
+      kind: "API_KEY",
+      payload: { apiKey, listId: chosen.id, datacenter: datacenterFromKey(apiKey)! },
+      accountLabel: `${account.accountName} · ${chosen.name}`,
+      accountExternalId: chosen.id,
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return `Connected to "${chosen.name}" (${chosen.memberCount.toLocaleString()} subscribers).`;
+  }, ["/studio/integrations", "/studio"]);
 }
 
 /* --------------------------------------------- Buzzsprout & WordPress */

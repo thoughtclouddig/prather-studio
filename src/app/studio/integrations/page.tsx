@@ -8,6 +8,7 @@ import { relative, stamp } from "@/lib/format";
 import { Panel, StateBadge } from "@/components/ui";
 import {
   ConnectBuzzsproutForm,
+  ConnectMailchimpForm,
   ConnectRumbleForm,
   ConnectWordPressForm,
   DisconnectButton,
@@ -24,13 +25,6 @@ export const dynamic = "force-dynamic";
  * nothing is worse than no control.
  */
 const PENDING = [
-  {
-    name: "Mailchimp",
-    capability: "Campaign draft · content · schedule · audience",
-    maturity: "High",
-    detail:
-      "Already proven end to end in the prior Prather Brief app: POST /campaigns then PUT content then schedule. Audience 6f7bc677e9.",
-  },
   {
     name: "OpusClip",
     capability: "Submit source video · retrieve scored clips · webhooks",
@@ -83,6 +77,7 @@ export default async function IntegrationsPage({
   const rumble = byProvider.get("RUMBLE" as IntegrationProvider);
   const buzzsprout = byProvider.get("BUZZSPROUT" as IntegrationProvider);
   const wordpress = byProvider.get("WORDPRESS" as IntegrationProvider);
+  const mailchimp = byProvider.get("MAILCHIMP" as IntegrationProvider);
   const canConfigure = can(user.role, "integration.configure");
 
   const rumbleObservation = rumble?.lastObservation as
@@ -410,6 +405,63 @@ export default async function IntegrationsPage({
             </>
           ) : canConfigure ? (
             <ConnectWordPressForm />
+          ) : (
+            <p className="text-[11px] text-[var(--color-type-lo)]">
+              Only an OWNER can connect integrations.
+            </p>
+          )}
+        </div>
+      </Panel>
+
+      {/* ------------------------------------------------------- MAILCHIMP */}
+      <Panel
+        eyebrow="Mailchimp"
+        title="The briefing email — drafted and scheduled, never sent on sight"
+        actions={
+          <StateBadge
+            tone={HEALTH_TONE[mailchimp?.health ?? "DISCONNECTED"]}
+            label={mailchimp?.health ?? "Not connected"}
+          />
+        }
+      >
+        <div className="px-4 py-3.5 space-y-3">
+          <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed max-w-[86ch]">
+            The Studio creates the campaign as a <strong>draft</strong> and schedules it for the
+            send time. It never sends on sight. Mailchimp has no undo &mdash; a briefing that has
+            gone out has gone to the whole list &mdash; so it is the one genuinely irreversible
+            action in this system and stays a deliberate step.
+          </p>
+
+          {mailchimp ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <div className="eyebrow mb-1">Account &amp; audience</div>
+                  <div className="text-[13px] font-semibold">
+                    {mailchimp.accountLabel ?? "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Audience ID</div>
+                  <div className="mono">{mailchimp.accountExternalId ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Last sync</div>
+                  <div className="mono">
+                    {mailchimp.lastObservedAt ? relative(mailchimp.lastObservedAt) : "never"}
+                  </div>
+                </div>
+              </div>
+
+              {mailchimp.lastError && (
+                <p className="text-[12px] text-[var(--color-signal-red)]">
+                  {mailchimp.lastError}
+                </p>
+              )}
+              {canConfigure && <DisconnectButton provider="MAILCHIMP" />}
+            </>
+          ) : canConfigure ? (
+            <ConnectMailchimpForm />
           ) : (
             <p className="text-[11px] text-[var(--color-type-lo)]">
               Only an OWNER can connect integrations.
