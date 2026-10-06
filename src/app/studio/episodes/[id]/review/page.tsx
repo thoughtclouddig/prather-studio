@@ -10,7 +10,7 @@ import {
   PUBLICATION_STATE_TONE,
 } from "@/lib/domain/vocabulary";
 import { showDateTime } from "@/lib/format";
-import { Panel, StateBadge } from "@/components/ui";
+import { Panel, StateBadge, BackToEpisode} from "@/components/ui";
 import { DraftCard, PublicationRow } from "../parts";
 
 export const dynamic = "force-dynamic";
@@ -64,7 +64,10 @@ export default async function ReviewMode({
       <div className="sticky top-12 z-10 -mx-4 px-4 py-3 bg-[var(--color-ink-000)] border-b border-[var(--color-ink-200)]">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div className="min-w-0">
-            <div className="eyebrow">Review · {showDateTime(episode.scheduledAt)}</div>
+            <div className="flex items-center gap-3 mb-0.5">
+              <BackToEpisode episodeId={episode.id} />
+              <span className="eyebrow">Review · {showDateTime(episode.scheduledAt)}</span>
+            </div>
             <div className="display text-[17px] truncate">
               {episode.approvedTitle ?? episode.workingTitle}
             </div>
