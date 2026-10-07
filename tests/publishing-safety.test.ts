@@ -297,6 +297,27 @@ describe("content engine output validation", () => {
     expect(() => validatePackage("not an object")).toThrow(PackageValidationError);
     expect(() => validatePackage({})).toThrow(PackageValidationError);
   });
+
+  /**
+   * The package survives untidy chapters. A real run produced 24 for a
+   * 72-minute show and the whole thing was discarded twice and then
+   * dead-lettered, taking the headlines, summaries, description and clips
+   * with it.
+   */
+  it("returns an untidy-but-usable package together with its warnings", () => {
+    const pkg = {
+      ...valid,
+      chapters: Array.from({ length: 24 }, (_, i) => ({
+        start_seconds: i * 180,
+        title: `Segment ${i + 1}`,
+      })),
+    };
+    const result = validatePackage(pkg, { durationSeconds: 4400 });
+    expect(result.pkg.primary_headline).toBe(valid.primary_headline);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("24 chapters")]),
+    );
+  });
 });
 
 describe("chapter rules", () => {
@@ -307,7 +328,7 @@ describe("chapter rules", () => {
         { start_seconds: 90, title: "B" },
         { start_seconds: 200, title: "C" },
       ]),
-    ).toEqual(expect.arrayContaining([expect.stringContaining("must start at 0:00")]));
+    ).toMatchObject({ problems: expect.arrayContaining([expect.stringContaining("must start at 0:00")]) });
   });
 
   it("requires strictly increasing timestamps", () => {
@@ -317,7 +338,7 @@ describe("chapter rules", () => {
         { start_seconds: 100, title: "B" },
         { start_seconds: 50, title: "C" },
       ]),
-    ).toEqual(expect.arrayContaining([expect.stringContaining("does not come after")]));
+    ).toMatchObject({ problems: expect.arrayContaining([expect.stringContaining("does not come after")]) });
   });
 
   it("requires at least 10 seconds between chapters", () => {
@@ -327,7 +348,7 @@ describe("chapter rules", () => {
         { start_seconds: 5, title: "B" },
         { start_seconds: 100, title: "C" },
       ]),
-    ).toEqual(expect.arrayContaining([expect.stringContaining("less than 10s apart")]));
+    ).toMatchObject({ problems: expect.arrayContaining([expect.stringContaining("less than 10s apart")]) });
   });
 
   it("accepts a sane set", () => {
@@ -340,6 +361,48 @@ describe("chapter rules", () => {
         ],
         3600,
       ),
-    ).toEqual([]);
+    ).toEqual({ problems: [], warnings: [] });
+  });
+
+  /**
+   * A real run produced 24 chapters for a 72-minute show. The whole package
+   * was rejected, twice, then dead-lettered — so the headlines, summaries,
+   * description and clips were all discarded because a list was long.
+   *
+   * Too many chapters is a judgement, not a breakage: YouTube renders them
+   * fine. The cost of the mistake has to match the mistake.
+   */
+  it("warns about too many chapters without rejecting the package", () => {
+    const many = Array.from({ length: 24 }, (_, i) => ({
+      start_seconds: i * 180,
+      title: `Segment ${i + 1}`,
+    }));
+    const result = validateChapters(many, 4400);
+
+    expect(result.problems).toEqual([]);
+    expect(result.warnings).toEqual(
+      expect.arrayContaining([expect.stringContaining("24 chapters")]),
+    );
+  });
+
+  it("warns about a long chapter title rather than throwing the package away", () => {
+    const result = validateChapters([
+      { start_seconds: 0, title: "Cold open" },
+      { start_seconds: 300, title: "x".repeat(95) },
+      { start_seconds: 700, title: "The September pattern" },
+    ]);
+    expect(result.problems).toEqual([]);
+    expect(result.warnings).toHaveLength(1);
+  });
+
+  it("still rejects what actually breaks the chapter strip", () => {
+    // Fewer than three and YouTube renders none at all — a real breakage.
+    const result = validateChapters([
+      { start_seconds: 0, title: "A" },
+      { start_seconds: 300, title: "B" },
+    ]);
+    expect(result.problems).toEqual(
+      expect.arrayContaining([expect.stringContaining("at least 3")]),
+    );
   });
 });

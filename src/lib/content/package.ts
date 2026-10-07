@@ -167,7 +167,11 @@ Package this episode. Ground every field in the transcript above.`,
     throw new Error("The model's output was not valid JSON despite the structured-output schema.");
   }
 
-  const pkg = validatePackage(parsed, {
+  // Warnings are judgements the package survives — too many chapters, a long
+  // title. They are surfaced rather than thrown, because discarding a whole
+  // package over an untidy list costs the headlines, the summaries, the
+  // description and the clips too.
+  const { pkg, warnings } = validatePackage(parsed, {
     durationSeconds: transcript.durationSeconds ?? undefined,
   });
 
@@ -179,13 +183,16 @@ Package this episode. Ground every field in the transcript above.`,
     subjectType: "episode",
     subjectId: episodeId,
     episodeId,
-    summary: `Content engine proposed ${draftsCreated} drafts from the transcript — all awaiting review`,
+    summary:
+      `Content engine proposed ${draftsCreated} drafts from the transcript — all awaiting review` +
+      (warnings.length > 0 ? ` · ${warnings.join("; ")}` : ""),
     after: {
       model: PACKAGE_MODEL,
       promptVersion: PROMPT_VERSION,
       drafts: draftsCreated,
       clips: pkg.clip_candidates.length,
       chapters: pkg.chapters.length,
+      warnings,
     },
   });
 

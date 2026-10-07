@@ -165,7 +165,7 @@ export class PackageValidationError extends Error {
 export function validatePackage(
   value: unknown,
   opts: { durationSeconds?: number } = {},
-): EpisodePackage {
+): { pkg: EpisodePackage; warnings: string[] } {
   const problems: string[] = [];
   const pkg = value as EpisodePackage;
 
@@ -210,7 +210,8 @@ export function validatePackage(
     });
   }
 
-  problems.push(...validateChapters(pkg.chapters, opts.durationSeconds));
+  const chapters = validateChapters(pkg.chapters, opts.durationSeconds);
+  problems.push(...chapters.problems);
 
   if (problems.length > 0) {
     throw new PackageValidationError(
@@ -218,20 +219,40 @@ export function validatePackage(
       problems,
     );
   }
-  return pkg;
+  return { pkg, warnings: chapters.warnings };
 }
 
-/** Chapter rules from the brief, applied as validation rather than as hope. */
+/** More than this and a chapter strip stops being scannable. Taste, not a rule. */
+export const CHAPTER_SOFT_MAX = 15;
+
+/**
+ * Chapter rules, split by what failing them actually costs.
+ *
+ * `problems` are breakages: YouTube renders no chapter strip at all, or the
+ * timings are impossible. Those are worth refusing a package over.
+ *
+ * `warnings` are judgements — too many chapters, a title too long to scan.
+ * The package still works. A real run produced 24 chapters for a 72-minute
+ * show and the whole thing was thrown away twice and then dead-lettered: the
+ * headlines, the summaries, the description and the clips, all discarded
+ * because a list was long. The cost of the mistake has to match the mistake,
+ * and pruning a list is a job for the person reviewing it.
+ */
 export function validateChapters(
   chapters: Array<{ start_seconds: number; title: string }> | undefined,
   durationSeconds?: number,
-): string[] {
+): { problems: string[]; warnings: string[] } {
   const problems: string[] = [];
+  const warnings: string[] = [];
   if (!Array.isArray(chapters) || chapters.length === 0) {
-    return ["chapters missing"];
+    return { problems: ["chapters missing"], warnings };
   }
   if (chapters.length < 3) problems.push("YouTube needs at least 3 chapters to render them");
-  if (chapters.length > 15) problems.push(`${chapters.length} chapters is too many to scan`);
+  if (chapters.length > CHAPTER_SOFT_MAX) {
+    warnings.push(
+      `${chapters.length} chapters — more than ${CHAPTER_SOFT_MAX} is hard to scan; prune in Review`,
+    );
+  }
 
   if (chapters[0]!.start_seconds !== 0) {
     problems.push("the first chapter must start at 0:00 or YouTube ignores all of them");
@@ -258,8 +279,8 @@ export function validateChapters(
   for (const chapter of chapters) {
     if (!chapter.title?.trim()) problems.push("a chapter has an empty title");
     else if (chapter.title.length > 80) {
-      problems.push(`chapter title "${chapter.title.slice(0, 30)}…" is too long to scan`);
+      warnings.push(`chapter title "${chapter.title.slice(0, 30)}…" is long`);
     }
   }
-  return problems;
+  return { problems, warnings };
 }
