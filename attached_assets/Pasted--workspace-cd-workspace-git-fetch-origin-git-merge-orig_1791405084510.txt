@@ -1,0 +1,57 @@
+~/workspace$ cd ~/workspace && git fetch origin && git merge origin/main --no-edit
+remote: Enumerating objects: 149, done.
+remote: Counting objects: 100% (149/149), done.
+remote: Compressing objects: 100% (61/61), done.
+remote: Total 116 (delta 73), reused 92 (delta 49), pack-reused 0 (from 0)
+Receiving objects: 100% (116/116), 55.73 KiB | 1.55 MiB/s, done.
+Resolving deltas: 100% (73/73), completed with 25 local objects.
+From https://github.com/thoughtclouddig/prather-studio
+   152b781..7975b6c  main       -> origin/main
+Merge made by the 'ort' strategy.
+ drizzle/0011_bright_masthead.sql                  |   1 +
+ drizzle/0012_printful_provider.sql                |   1 +
+ drizzle/0013_merch_items.sql                      |  26 +++
+ drizzle/meta/_journal.json                        |  21 ++
+ public/brand/prather-point-email.png              | Bin 0 -> 4610 bytes
+ src/app/studio/episodes/[id]/briefing/page.tsx    | 238 +++++++++++++++++++++++
+ src/app/studio/episodes/[id]/briefing/parts.tsx   |  65 +++++++
+ src/app/studio/episodes/[id]/page.tsx             | 329 +++++++++++++++++++++++++-------
+ src/app/studio/integrations/page.tsx              |  67 +++++++
+ src/app/studio/integrations/parts.tsx             |  55 ++++++
+ src/app/studio/integrations/printful/page.tsx     | 180 +++++++++++++++++
+ src/app/studio/phase2-actions.ts                  | 130 ++++++++++++-
+ src/app/studio/settings/actions.ts                | 275 ++++++++++++++++++++++++++
+ src/app/studio/settings/import-sponsors/page.tsx  | 151 +++++++++++++++
+ src/app/studio/settings/import-sponsors/parts.tsx |  94 +++++++++
+ src/app/studio/settings/page.tsx                  |  52 ++---
+ src/app/studio/settings/sponsors.tsx              | 268 ++++++++++++++++++++++++++
+ src/db/schema.ts                                  |  59 ++++++
+ src/lib/domain/briefing-campaign.ts               |   5 +
+ src/lib/domain/sponsor-import.ts                  | 139 ++++++++++++++
+ src/lib/email/template.ts                         | 194 +++++++++++++------
+ src/lib/integrations/mailchimp/client.ts          |  52 +++++
+ src/lib/integrations/printful/client.ts           | 273 ++++++++++++++++++++++++++
+ src/lib/queue/queue.ts                            |  75 +++++++-
+ tests/email-template.test.ts                      |  69 ++++++-
+ tests/merch-url.test.ts                           |  53 +++++
+ tests/queue.test.ts                               |  67 ++++++-
+ tests/sponsor-import.test.ts                      |  72 +++++++
+ 28 files changed, 2827 insertions(+), 184 deletions(-)
+ create mode 100644 drizzle/0011_bright_masthead.sql
+ create mode 100644 drizzle/0012_printful_provider.sql
+ create mode 100644 drizzle/0013_merch_items.sql
+ create mode 100644 public/brand/prather-point-email.png
+ create mode 100644 src/app/studio/episodes/[id]/briefing/page.tsx
+ create mode 100644 src/app/studio/episodes/[id]/briefing/parts.tsx
+ create mode 100644 src/app/studio/integrations/printful/page.tsx
+ create mode 100644 src/app/studio/settings/actions.ts
+ create mode 100644 src/app/studio/settings/import-sponsors/page.tsx
+ create mode 100644 src/app/studio/settings/import-sponsors/parts.tsx
+ create mode 100644 src/app/studio/settings/sponsors.tsx
+ create mode 100644 src/lib/domain/sponsor-import.ts
+ create mode 100644 src/lib/integrations/printful/client.ts
+ create mode 100644 tests/merch-url.test.ts
+ create mode 100644 tests/sponsor-import.test.ts
+~/workspace$ cd ~/workspace && git log --oneline -1
+bfc7da2 (HEAD -> main) Merge remote-tracking branch 'origin/main'
+~/workspace$ 
