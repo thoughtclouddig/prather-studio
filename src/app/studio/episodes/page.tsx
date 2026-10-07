@@ -1,5 +1,10 @@
 import Link from "next/link";
-import { listEpisodes, needsAttention, type EpisodeRow } from "@/lib/domain/episodes";
+import {
+  attentionReason,
+  listEpisodes,
+  needsAttention,
+  type EpisodeRow,
+} from "@/lib/domain/episodes";
 import { classifyEpisode, isPastUnresolved, isUpcoming } from "@/lib/domain/schedule";
 import {
   PACKAGING_LABEL,
@@ -136,10 +141,10 @@ export default async function EpisodesPage({
                             · past schedule, unresolved
                           </span>
                         )}
-                        {needsAttention(e) && (
+                        {attentionReason(e) && (
                           <span className="text-[var(--color-signal-red)]">
                             {" "}
-                            · needs attention
+                            · {attentionReason(e)}
                           </span>
                         )}
                       </div>

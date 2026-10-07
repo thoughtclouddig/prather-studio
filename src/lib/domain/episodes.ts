@@ -169,7 +169,32 @@ export async function listEpisodes(): Promise<EpisodeRow[]> {
 }
 
 export function needsAttention(row: EpisodeRow): boolean {
-  return row.failedPublications > 0 || row.deadJobs > 0;
+  return attentionReason(row) !== null;
+}
+
+/**
+ * Why this episode is flagged, in words.
+ *
+ * The badge on its own was a dead end: it said something was wrong and gave
+ * no way to find out what, so the only route was to open the Jobs page and
+ * work out which rows belonged to this episode. A flag that cannot explain
+ * itself just adds a thing to worry about.
+ *
+ * Note a dead job stays dead after the problem behind it is fixed, so this
+ * can outlive its cause — re-running the step clears the row and the flag
+ * with it.
+ */
+export function attentionReason(row: EpisodeRow): string | null {
+  const parts: string[] = [];
+  if (row.failedPublications > 0) {
+    parts.push(
+      `${row.failedPublications} failed publication${row.failedPublications === 1 ? "" : "s"}`,
+    );
+  }
+  if (row.deadJobs > 0) {
+    parts.push(`${row.deadJobs} job${row.deadJobs === 1 ? "" : "s"} gave up`);
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 export async function getEpisodeDetail(episodeId: string) {

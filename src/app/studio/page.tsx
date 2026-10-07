@@ -3,7 +3,11 @@ import { desc, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import { eq } from "drizzle-orm";
 import { activityEvents, jobs, preStreamAssets, shows } from "@/db/schema";
-import { listEpisodes, needsAttention, type EpisodeRow } from "@/lib/domain/episodes";
+import {
+  attentionReason,
+  listEpisodes,
+  type EpisodeRow,
+} from "@/lib/domain/episodes";
 import {
   PACKAGING_LABEL,
   PACKAGING_TONE,
@@ -330,9 +334,12 @@ export default async function Dashboard() {
                         >
                           {e.approvedTitle ?? e.workingTitle}
                         </Link>
-                        {needsAttention(e) && (
-                          <span className="ml-2 text-[10px] uppercase tracking-wider text-[var(--color-signal-red)]">
-                            needs attention
+                        {attentionReason(e) && (
+                          <span
+                            className="ml-2 text-[10px] uppercase tracking-wider text-[var(--color-signal-red)]"
+                            title={attentionReason(e) ?? undefined}
+                          >
+                            {attentionReason(e)}
                           </span>
                         )}
                       </td>
