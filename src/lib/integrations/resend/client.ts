@@ -31,15 +31,46 @@ export class ResendApiError extends Error {
 
 export class ResendNotConnectedError extends Error {
   constructor() {
-    super("Resend is not connected. Add the API key in Integrations.");
+    super(
+      "Resend is not connected. Add the API key in Integrations, or set " +
+        "RESEND_API_KEY in Secrets.",
+    );
     this.name = "ResendNotConnectedError";
   }
 }
 
+/**
+ * Resolve the credential from the Studio first, then the environment.
+ *
+ * Most providers here are connected through the Integrations screen, which
+ * verifies the key and stores it encrypted. This one also accepts
+ * `RESEND_API_KEY` from the environment, because an operator putting a mail
+ * key in Replit Secrets is a reasonable thing to do and should not silently
+ * do nothing.
+ *
+ * The stored credential wins when both exist: it is the one that was actually
+ * verified, and two sources disagreeing should resolve to the one someone
+ * confirmed rather than to whichever was read last.
+ */
 async function credential(): Promise<ResendCredentialPayload> {
   const stored = await readCredential<ResendCredentialPayload>("RESEND");
-  if (!stored) throw new ResendNotConnectedError();
-  return stored.payload;
+  if (stored) return stored.payload;
+
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) throw new ResendNotConnectedError();
+
+  return {
+    apiKey,
+    // Resend's shared sender works with no domain setup. A real address
+    // belongs in RESEND_FROM once a domain is verified.
+    from: process.env.RESEND_FROM?.trim() || "onboarding@resend.dev",
+  };
+}
+
+/** Whether mail can be sent at all, and how it was configured. */
+export async function resendSource(): Promise<"studio" | "environment" | null> {
+  if (await readCredential<ResendCredentialPayload>("RESEND")) return "studio";
+  return process.env.RESEND_API_KEY?.trim() ? "environment" : null;
 }
 
 interface SendResult {

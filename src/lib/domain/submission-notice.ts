@@ -20,8 +20,8 @@ import { sendNotification } from "@/lib/integrations/resend/client";
 export class NoRecipientError extends Error {
   constructor() {
     super(
-      "No notification address is set. Add one in Settings before expecting " +
-        "submission emails.",
+      "No notification address is set. Add one when connecting Resend in " +
+        "Integrations, or set NOTIFY_EMAIL in Secrets.",
     );
     this.name = "NoRecipientError";
   }
@@ -75,7 +75,9 @@ export async function sendSubmissionNotice(
   if (!episode) throw new Error("Episode not found.");
 
   const [config] = await db.select().from(settings).where(eq(settings.id, "global")).limit(1);
-  const to = config?.notifyEmail?.trim();
+  // Settings first, then the environment — same order as the credential, so
+  // configuring the whole thing through Replit Secrets works end to end.
+  const to = config?.notifyEmail?.trim() || process.env.NOTIFY_EMAIL?.trim();
   if (!to) throw new NoRecipientError();
 
   const notice = composeSubmissionNotice({

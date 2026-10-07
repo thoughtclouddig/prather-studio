@@ -4,6 +4,7 @@ import { can } from "@/lib/auth/authorize";
 import { listIntegrations } from "@/lib/integrations/credentials";
 import { SCOPE_RATIONALE, YOUTUBE_SCOPES } from "@/lib/integrations/youtube/scopes";
 import { eq } from "drizzle-orm";
+import { resendSource } from "@/lib/integrations/resend/client";
 import { db } from "@/db/client";
 import { settings, type IntegrationProvider } from "@/db/schema";
 import { relative, stamp } from "@/lib/format";
@@ -82,6 +83,9 @@ export default async function IntegrationsPage({
   const buzzsprout = byProvider.get("BUZZSPROUT" as IntegrationProvider);
   const printful = byProvider.get("PRINTFUL" as IntegrationProvider);
   const resend = byProvider.get("RESEND" as IntegrationProvider);
+  // A key in Replit Secrets works but writes no integration row, so the
+  // panel would otherwise read "Not connected" while mail was going out.
+  const resendSourceKind = await resendSource();
   const [config] = await db.select().from(settings).where(eq(settings.id, "global")).limit(1);
   const wordpress = byProvider.get("WORDPRESS" as IntegrationProvider);
   const mailchimp = byProvider.get("MAILCHIMP" as IntegrationProvider);
@@ -548,8 +552,17 @@ export default async function IntegrationsPage({
         title="Operator notices — one line, to one person"
         actions={
           <StateBadge
-            tone={HEALTH_TONE[resend?.health ?? "DISCONNECTED"]}
-            label={resend?.health ?? "Not connected"}
+            tone={
+              resend
+                ? HEALTH_TONE[resend.health]
+                : resendSourceKind === "environment"
+                  ? "done"
+                  : "muted"
+            }
+            label={
+              resend?.health ??
+              (resendSourceKind === "environment" ? "From Secrets" : "Not connected")
+            }
           />
         }
       >
@@ -562,7 +575,31 @@ export default async function IntegrationsPage({
             not sent inline &mdash; his form cannot be made to hang by a slow mail provider.
           </p>
 
-          {resend ? (
+          {!resend && resendSourceKind === "environment" ? (
+            <div className="space-y-2">
+              <p className="text-[12px] leading-relaxed max-w-[86ch]">
+                Configured from <span className="mono">RESEND_API_KEY</span> in Secrets.
+                That works. Sending from{" "}
+                <span className="mono">
+                  {process.env.RESEND_FROM?.trim() || "onboarding@resend.dev"}
+                </span>{" "}
+                to{" "}
+                <span className="mono">
+                  {config?.notifyEmail ?? process.env.NOTIFY_EMAIL ?? "nobody — set NOTIFY_EMAIL"}
+                </span>
+                .
+              </p>
+              {!config?.notifyEmail && !process.env.NOTIFY_EMAIL && (
+                <p className="text-[12px] text-[var(--color-signal-amber)] leading-relaxed max-w-[86ch]">
+                  No recipient is set, so nothing will be sent. Add{" "}
+                  <span className="mono">NOTIFY_EMAIL</span> to Secrets, or connect below
+                  to set it here &mdash; connecting also verifies the key, which Secrets
+                  cannot do.
+                </p>
+              )}
+              {canConfigure && <ConnectResendForm />}
+            </div>
+          ) : resend ? (
             <>
               <div className="grid gap-4 sm:grid-cols-3">
                 <div>
