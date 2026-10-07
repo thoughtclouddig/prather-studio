@@ -21,10 +21,14 @@ export function RumbleHandoff({
   description,
   chapters,
   videoUrl,
+  videoLinkLabel,
+  videoIsEmbedOnly,
 }: {
   description: string | null;
   chapters: string | null;
   videoUrl: string | null;
+  videoLinkLabel?: string | null;
+  videoIsEmbedOnly?: boolean;
 }) {
   const [copied, setCopied] = useState<string | null>(null);
   const [showing, setShowing] = useState(false);
@@ -84,8 +88,18 @@ export function RumbleHandoff({
           {showing ? "Hide" : "Show"}
         </button>
         {videoUrl && (
-          <a href={videoUrl} target="_blank" rel="noreferrer" className="link text-[12px] font-semibold">
-            Open on Rumble &rarr;
+          <a
+            href={videoUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="link text-[12px] font-semibold"
+            title={
+              videoIsEmbedOnly
+                ? "This is the bare player. Rumble's embed URL cannot be turned back into its page URL."
+                : undefined
+            }
+          >
+            {videoLinkLabel ?? "Open on Rumble"} &rarr;
           </a>
         )}
       </div>

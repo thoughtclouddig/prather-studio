@@ -25,6 +25,10 @@ import { episodeImages, settings } from "@/db/schema";
 import { buildThumbnailBrief, slugFor } from "@/lib/images/thumbnail-brief";
 import { BuzzsproutAudioUpload } from "./buzzsprout-parts";
 import { RumbleHandoff } from "./rumble-parts";
+import {
+  normalizeRumbleVideoUrl,
+  rumbleLinkLabel,
+} from "@/lib/integrations/rumble/video-url";
 import { CreateBuzzsproutDraft, CreateWordPressDraft } from "./publish-parts";
 import { ThumbnailStep } from "./thumbnail-parts";
 import { updateEpisodeAction } from "@/app/studio/actions";
@@ -146,6 +150,9 @@ export default async function EpisodeWorkspace({
   const buzzsproutPub = publications.find((p) => p.platform === "BUZZSPROUT");
   const wordpressPub = publications.find((p) => p.platform === "WORDPRESS");
   const rumblePub = publications.find((p) => p.platform === "RUMBLE");
+  // An embed id that lost its leading "v" 404s; a page URL and an embed URL
+  // are different things and only one of them is somewhere to send a person.
+  const rumbleLink = normalizeRumbleVideoUrl(rumblePub?.externalUrl);
 
   // The same approved copy YouTube receives — one source, several destinations.
   const approvedDescription =
@@ -771,7 +778,9 @@ export default async function EpisodeWorkspace({
           <RumbleHandoff
             description={approvedDescription}
             chapters={approvedChapters}
-            videoUrl={rumblePub?.externalUrl ?? null}
+            videoUrl={rumbleLink?.url ?? null}
+            videoLinkLabel={rumbleLink ? rumbleLinkLabel(rumbleLink) : null}
+            videoIsEmbedOnly={rumbleLink?.kind === "embed"}
           />
         </Panel>
 
