@@ -16,7 +16,7 @@ import {
   READINESS_TONE,
 } from "@/lib/domain/vocabulary";
 import { relative, showDateTime, stamp } from "@/lib/format";
-import type { Platform } from "@/db/schema";
+import type { JobState, Platform } from "@/db/schema";
 import { diagnosticsEnabled } from "@/lib/diagnostics";
 import { Empty, Panel, StateBadge } from "@/components/ui";
 import { and, eq } from "drizzle-orm";
@@ -50,6 +50,57 @@ import {
  * offering SIMULATE next to a genuinely connected provider is how a simulated
  * publish gets mistaken for a real one.
  */
+/**
+ * What the background job behind a step is actually doing.
+ *
+ * Without this, pressing a button that enqueues work gives no visible result
+ * at all: the drafts are not there yet, the row still says "No drafts", and
+ * the job's state and its error live on a different page. The operator is left
+ * with a control that appears to do nothing — which is how a working queue and
+ * a broken one look identical.
+ */
+function JobStatus({
+  job,
+}: {
+  job:
+    | {
+        state: JobState;
+        attempts: number;
+        maxAttempts: number;
+        updatedAt: Date;
+        runAfter: Date | null;
+        lastError: string | null;
+      }
+    | undefined;
+}) {
+  if (!job) return null;
+
+  const waiting = job.state === "PENDING" && job.runAfter && job.runAfter > new Date();
+
+  return (
+    <div className="mt-1.5 space-y-1">
+      <div className="flex items-center gap-2 flex-wrap">
+        <StateBadge tone={JOB_STATE_TONE[job.state]} label={job.state} />
+        <span className="mono text-[11px] text-[var(--color-type-lo)]">
+          attempt {job.attempts}/{job.maxAttempts} · {relative(job.updatedAt)}
+          {waiting && job.runAfter ? ` · next try ${relative(job.runAfter)}` : ""}
+        </span>
+      </div>
+      {job.lastError && (
+        <p
+          className={`text-[11px] leading-snug ${
+            job.state === "DEAD" || job.state === "FAILED"
+              ? "text-[var(--color-signal-red)]"
+              : "text-[var(--color-type-lo)]"
+          }`}
+        >
+          {job.lastError}
+        </p>
+      )}
+    </div>
+  );
+}
+
 const REAL_PLATFORMS = new Set<Platform>(["YOUTUBE", "RUMBLE", "BUZZSPROUT"]);
 
 export const dynamic = "force-dynamic";
@@ -140,6 +191,12 @@ export default async function EpisodeWorkspace({
   const youtubeConnected = youtubeIntegration?.health === "CONNECTED";
   const transcript = transcriptResult?.transcript ?? null;
   const hasDrafts = liveDrafts.length > 0;
+
+  // jobs arrive newest-first, so the first match is the current one.
+  const latestJob = (kind: string) => jobs.find((j) => j.kind === kind);
+  const packageJob = latestJob("episode.package");
+  const captionsJob = latestJob("youtube.fetch_captions");
+  const preShowJob = latestJob("episode.pre_show");
 
   return (
     <div className="space-y-5">
@@ -284,6 +341,7 @@ export default async function EpisodeWorkspace({
                     ? "Three subject lines, a preview line, the brief and his bullets — all PROPOSED until approved in Review."
                     : "Reads his headline, topics and write-up. No transcript required, so this can run the moment he submits."}
                 </span>
+                <JobStatus job={preShowJob} />
               </td>
               <td className="align-top text-right">
                 {canEdit && (
@@ -495,6 +553,7 @@ export default async function EpisodeWorkspace({
                     few hours to appear after a stream ends.
                   </span>
                 )}
+                <JobStatus job={captionsJob} />
               </td>
               <td className="align-top text-right">
                 {canEdit && (
@@ -532,6 +591,7 @@ export default async function EpisodeWorkspace({
                     ? "Everything it wrote is a PROPOSED draft until a person approves it."
                     : "Reads the transcript and proposes headlines, summaries, descriptions, chapters and 3–5 clip moments."}
                 </span>
+                <JobStatus job={packageJob} />
               </td>
               <td className="align-top text-right">
                 {canEdit && (
