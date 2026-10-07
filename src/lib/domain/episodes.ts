@@ -6,7 +6,9 @@ import { db } from "@/db/client";
 import {
   activityEvents,
   episodeContentDrafts,
+  episodeImages,
   episodePublications,
+  episodeTranscripts,
   episodes,
   jobs,
   shows,
@@ -16,7 +18,7 @@ import {
   type User,
 } from "@/db/schema";
 import { authorize } from "@/lib/auth/authorize";
-import { recordActivity } from "./activity";
+import { recordActivity, type Actor } from "./activity";
 import { derivePackaging, type PackagingStatus } from "./vocabulary";
 
 function actorFor(user: User) {
@@ -230,4 +232,106 @@ export async function getReviewQueue(episodeId: string) {
       ),
     )
     .orderBy(asc(episodeContentDrafts.sortOrder), asc(episodeContentDrafts.createdAt));
+}
+
+/**
+ * What deleting an episode would destroy.
+ *
+ * Counted and shown before anything happens, because the cascade reaches a
+ * long way — drafts, the transcript, publication links, artwork, job history —
+ * and "delete this episode" does not look like it means "and the transcript it
+ * took four hours to get".
+ */
+export interface DeletionImpact {
+  drafts: number;
+  transcripts: number;
+  publications: number;
+  images: number;
+  jobs: number;
+  /** Platforms this episode is live or scheduled on. Deleting loses the link. */
+  liveOn: string[];
+}
+
+export async function deletionImpact(episodeId: string): Promise<DeletionImpact> {
+  const [draftRows, transcriptRows, publicationRows, imageRows, jobRows] = await Promise.all([
+    db.select({ id: episodeContentDrafts.id }).from(episodeContentDrafts)
+      .where(eq(episodeContentDrafts.episodeId, episodeId)),
+    db.select({ id: episodeTranscripts.id }).from(episodeTranscripts)
+      .where(eq(episodeTranscripts.episodeId, episodeId)),
+    db.select().from(episodePublications)
+      .where(eq(episodePublications.episodeId, episodeId)),
+    db.select({ id: episodeImages.id }).from(episodeImages)
+      .where(eq(episodeImages.episodeId, episodeId)),
+    db.select({ id: jobs.id }).from(jobs).where(eq(jobs.episodeId, episodeId)),
+  ]);
+
+  const LIVE = new Set(["LIVE", "PUBLISHED", "SCHEDULED"]);
+
+  return {
+    drafts: draftRows.length,
+    transcripts: transcriptRows.length,
+    publications: publicationRows.length,
+    images: imageRows.length,
+    jobs: jobRows.length,
+    liveOn: publicationRows.filter((p) => LIVE.has(p.state)).map((p) => p.platform),
+  };
+}
+
+export class EpisodeDeletionError extends Error {}
+
+/**
+ * Delete an episode and everything that cascades from it.
+ *
+ * Reserved for mistakes: a duplicate, a test, an episode created on the wrong
+ * date. A real broadcast should be corrected, not removed — the archive is the
+ * point of this system.
+ *
+ * The activity event is written BEFORE the delete and deliberately records
+ * what was lost, because the row it points at is about to stop existing. It is
+ * the only trace left afterwards.
+ */
+export async function deleteEpisode(
+  episodeId: string,
+  actor: Actor,
+  opts: { force?: boolean } = {},
+): Promise<{ title: string; impact: DeletionImpact }> {
+  const [episode] = await db.select().from(episodes).where(eq(episodes.id, episodeId)).limit(1);
+  if (!episode) throw new EpisodeDeletionError("That episode no longer exists.");
+
+  const impact = await deletionImpact(episodeId);
+
+  // Live somewhere is the one case worth refusing by default: the publication
+  // row is how the Studio knows this episode is that video, and losing it
+  // leaves something published that nothing here can match again.
+  if (impact.liveOn.length > 0 && !opts.force) {
+    throw new EpisodeDeletionError(
+      `This episode is published or scheduled on ${impact.liveOn.join(", ")}. ` +
+        "Deleting it here does not remove it there — it only loses the link " +
+        "between them. Unlink it first, or confirm you mean to delete anyway.",
+    );
+  }
+
+  const title = episode.approvedTitle ?? episode.workingTitle;
+
+  await recordActivity({
+    actor,
+    verb: "episode.deleted",
+    subjectType: "episode",
+    subjectId: episodeId,
+    // Deliberately NOT episodeId: that column references a row about to go.
+    summary:
+      `Deleted the episode "${title}" — ${impact.drafts} drafts, ` +
+      `${impact.transcripts} transcript(s), ${impact.publications} publication(s), ` +
+      `${impact.images} image(s)`,
+    before: {
+      title,
+      slug: episode.slug,
+      scheduledAt: episode.scheduledAt?.toISOString() ?? null,
+      impact,
+    },
+  });
+
+  await db.delete(episodes).where(eq(episodes.id, episodeId));
+
+  return { title, impact };
 }

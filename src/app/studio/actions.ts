@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { requirePermission } from "@/lib/auth/require";
 import {
   approveDraft,
@@ -11,7 +12,7 @@ import {
   enqueueSimulatedPublish,
   setPublicationIntent,
 } from "@/lib/domain/publications";
-import { updateEpisode } from "@/lib/domain/episodes";
+import { deleteEpisode, updateEpisode } from "@/lib/domain/episodes";
 import { enqueue, retry } from "@/lib/queue/queue";
 import { DiagnosticsDisabledError, diagnosticsEnabled } from "@/lib/diagnostics";
 import { fromShowInputValue } from "@/lib/format";
@@ -173,4 +174,39 @@ export async function enqueueTestJobAction(
     });
     return `Queued a ${kind} job.`;
   }, ["/studio/jobs"]);
+}
+
+/**
+ * Delete an episode.
+ *
+ * OWNER only, and the confirmation names what goes with it — the cascade
+ * reaches the drafts, the transcript, the publication links, the artwork and
+ * the job history, and "delete this episode" does not look like it means "and
+ * the transcript that took four hours to arrive".
+ *
+ * Redirects to the archive afterwards, because the page the operator is
+ * standing on is the one that just stopped existing.
+ */
+export async function deleteEpisodeAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  const force = formData.get("force") === "on";
+
+  let deleted: { title: string } | null = null;
+  const result = await guarded(async () => {
+    const user = await requirePermission("episode.delete");
+    deleted = await deleteEpisode(
+      episodeId,
+      { kind: "user", id: user.id, name: user.name },
+      { force },
+    );
+    return `Deleted "${deleted.title}".`;
+  }, ["/studio", "/studio/episodes"]);
+
+  // Only leave the page once the delete actually happened; an error has to
+  // stay on screen where it can be read.
+  if (deleted) redirect("/studio/episodes");
+  return result;
 }

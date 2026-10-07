@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getEpisodeDetail } from "@/lib/domain/episodes";
+import { deletionImpact, getEpisodeDetail } from "@/lib/domain/episodes";
 import { requireUser } from "@/lib/auth/require";
 import { can } from "@/lib/auth/authorize";
 import {
@@ -31,6 +31,7 @@ import {
 } from "@/lib/integrations/rumble/video-url";
 import { CreateBuzzsproutDraft, CreateWordPressDraft } from "./publish-parts";
 import { ThumbnailStep } from "./thumbnail-parts";
+import { DeleteEpisode } from "./danger";
 import { updateEpisodeAction } from "@/app/studio/actions";
 import { latestTranscript } from "@/lib/domain/transcripts";
 import { topicLines } from "@/lib/domain/intake";
@@ -153,6 +154,8 @@ export default async function EpisodeWorkspace({
   // An embed id that lost its leading "v" 404s; a page URL and an embed URL
   // are different things and only one of them is somewhere to send a person.
   const rumbleLink = normalizeRumbleVideoUrl(rumblePub?.externalUrl);
+  const canDelete = can(user.role, "episode.delete");
+  const impact = canDelete ? await deletionImpact(episode.id) : null;
 
   // The same approved copy YouTube receives — one source, several destinations.
   const approvedDescription =
@@ -889,7 +892,19 @@ export default async function EpisodeWorkspace({
             </ol>
           )}
         </Panel>
+
       </div>
+
+      {/* Last on the page, and nowhere near the working controls. */}
+      {canDelete && impact && (
+        <Panel eyebrow="Danger" title="Remove this episode">
+          <DeleteEpisode
+            episodeId={episode.id}
+            title={episode.approvedTitle ?? episode.workingTitle}
+            impact={impact}
+          />
+        </Panel>
+      )}
     </div>
   );
 }
