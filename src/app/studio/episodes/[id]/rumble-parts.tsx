@@ -87,19 +87,32 @@ export function RumbleHandoff({
         >
           {showing ? "Hide" : "Show"}
         </button>
+        {/* The paste target. Rumble publishes no per-video edit URL that can be
+            constructed from an id, so this opens the content manager — the
+            list the episode is edited from — rather than guessing a deep link
+            that would 404. The player link below is for checking the right
+            video, not for editing: you cannot paste a description into it. */}
+        <a
+          href="https://rumble.com/account/content"
+          target="_blank"
+          rel="noreferrer"
+          className="btn btn-xs"
+        >
+          Edit on Rumble &rarr;
+        </a>
         {videoUrl && (
           <a
             href={videoUrl}
             target="_blank"
             rel="noreferrer"
-            className="link text-[12px] font-semibold"
+            className="link text-[11px]"
             title={
               videoIsEmbedOnly
-                ? "This is the bare player. Rumble's embed URL cannot be turned back into its page URL."
+                ? "The bare player, for checking this is the right video. Rumble's embed URL cannot be turned back into its page URL, and you cannot edit from it."
                 : undefined
             }
           >
-            {videoLinkLabel ?? "Open on Rumble"} &rarr;
+            {videoIsEmbedOnly ? "preview the player" : (videoLinkLabel ?? "open the page")}
           </a>
         )}
       </div>
