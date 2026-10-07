@@ -5,6 +5,7 @@ import { requireUser } from "@/lib/auth/require";
 import { can } from "@/lib/auth/authorize";
 import { Empty, Field, Panel } from "@/components/ui";
 import { DEFAULT_SEND_TIME, DEFAULT_SEND_ZONE } from "@/lib/email/send-time";
+import { SponsorManager } from "./sponsors";
 
 export const dynamic = "force-dynamic";
 
@@ -32,8 +33,8 @@ export default async function SettingsPage() {
       <p className="text-[12px] text-[var(--color-type-lo)] max-w-[760px] leading-relaxed">
         These are the operating defaults every platform description and campaign will
         compose from. They live in the database rather than in code, so they can change
-        without a deploy. Editing is OWNER-only and lands in a later phase — this build
-        reads them.
+        without a deploy. Sponsors are editable here, by the owner; the rest is still
+        read-only.
       </p>
 
       <div className="grid gap-5 lg:grid-cols-2">
@@ -90,39 +91,20 @@ export default async function SettingsPage() {
         </Panel>
       </div>
 
-      <Panel eyebrow="Sponsors" title={`${sponsorRows.length} active`}>
-        {sponsorRows.length === 0 ? (
-          <Empty>No sponsors configured.</Empty>
-        ) : (
-          <div className="overflow-x-auto">
-          <table className="grid-table">
-            <thead>
-              <tr>
-                <th>Sponsor</th>
-                <th>Offer</th>
-                <th>URL</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sponsorRows.map((s) => (
-                <tr key={s.id}>
-                  <td className="font-semibold">{s.name}</td>
-                  <td className="text-[12px]">{s.offer ?? "—"}</td>
-                  <td>
-                    {s.url ? (
-                      <a href={s.url} className="link mono" target="_blank" rel="noreferrer">
-                        {s.url}
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        )}
+      <Panel
+        eyebrow="Sponsors"
+        title={`${sponsorRows.filter((s) => s.active).length} of ${sponsorRows.length} in the briefing`}
+      >
+        <SponsorManager
+          canEdit={can(user.role, "settings.edit")}
+          sponsors={sponsorRows.map((s) => ({
+            id: s.id,
+            name: s.name,
+            url: s.url,
+            offer: s.offer,
+            active: s.active,
+          }))}
+        />
       </Panel>
 
       <Panel

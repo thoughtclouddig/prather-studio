@@ -29,6 +29,7 @@ import {
   verifyKey,
 } from "@/lib/integrations/mailchimp/client";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
+import { listStores } from "@/lib/integrations/printful/client";
 import {
   listRecentVideos,
   listUpcomingBroadcasts,
@@ -36,8 +37,9 @@ import {
 } from "@/lib/integrations/youtube/client";
 import { PROMPT_VERSION } from "@/lib/content/package";
 import { PRE_SHOW_PROMPT_VERSION } from "@/lib/content/pre-show";
+import { scheduleBriefingCampaign } from "@/lib/domain/briefing-campaign";
 import { recordActivity } from "@/lib/domain/activity";
-import { enqueue } from "@/lib/queue/queue";
+import { enqueue, enqueueOrRerun, type RunOutcome } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
 import { extractVideoId } from "@/lib/integrations/youtube/video-id";
 import { db } from "@/db/client";
@@ -181,6 +183,30 @@ export async function enqueueCaptionsAction(
   }, episodePaths(episodeId));
 }
 
+/**
+ * Say what actually happened, in the operator's terms.
+ *
+ * A previous failure is surfaced rather than swallowed: the whole reason the
+ * button appeared to do nothing was that the job behind it had already run and
+ * the error lived only in the jobs table.
+ */
+function describeRun(
+  run: RunOutcome,
+  what: string,
+  thenWhat: string,
+): string {
+  switch (run.outcome) {
+    case "queued":
+      return `Queued the ${what}. ${thenWhat}`;
+    case "already-running":
+      return `The ${what} is already queued and has not finished yet. ${thenWhat}`;
+    case "rerun":
+      return run.previousError
+        ? `Re-running the ${what}. The previous attempt ${run.previousState === "DEAD" ? "gave up" : "failed"}: ${run.previousError}`
+        : `Re-running the ${what} — it had already completed for this material. ${thenWhat}`;
+  }
+}
+
 export async function enqueuePackageAction(
   _prev: ActionState,
   formData: FormData,
@@ -208,14 +234,19 @@ export async function enqueuePackageAction(
       );
     }
 
-    await enqueue({
+    // The outcome is REPORTED, not assumed. A deterministic key is a one-shot:
+    // once it exists, a plain enqueue silently does nothing, and this used to
+    // return "Queued the content engine" regardless -- a green message, no
+    // drafts, and nothing on screen explaining the gap.
+    const run = await enqueueOrRerun({
       kind: "episode.package",
       idempotencyKey: `episode.package:${episodeId}:${transcript.id}:${PROMPT_VERSION}`,
       episodeId,
       maxAttempts: 2,
       actor: { kind: "user", id: user.id, name: user.name },
     });
-    return "Queued the content engine. Proposals will appear in Review.";
+
+    return describeRun(run, "content engine", "Proposals will appear in Review.");
   }, episodePaths(episodeId));
 }
 
@@ -305,6 +336,28 @@ export async function regenerateContentAction(
  * genuinely new key and regenerates, which is the behaviour an operator
  * expects after he sends a correction.
  */
+/**
+ * Schedule the briefing campaign in Mailchimp.
+ *
+ * The one action in the Studio that reaches an audience without a second
+ * human step afterwards, so it is deliberately narrow: it schedules, it never
+ * sends, and everything it refuses it refuses loudly. The send time comes from
+ * Settings (11:00 America/Phoenix by default), not from this form — an
+ * operator choosing a one-off time in a hurry is how a briefing goes out at
+ * an hour nobody meant.
+ */
+export async function scheduleBriefingAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+    const result = await scheduleBriefingCampaign(episodeId, user);
+    return `Scheduled in Mailchimp for ${result.sendSummary}. It is a draft until then — nothing has been sent.`;
+  }, episodePaths(episodeId));
+}
+
 export async function runPreShowAction(
   _prev: ActionState,
   formData: FormData,
@@ -323,7 +376,7 @@ export async function runPreShowAction(
       throw new Error("Jeff has not submitted this show yet, so there is nothing to prepare.");
     }
 
-    await enqueue({
+    const run = await enqueueOrRerun({
       kind: "episode.pre_show",
       idempotencyKey:
         `episode.pre_show:${episodeId}:${episode.submittedAt?.getTime() ?? 0}:${PRE_SHOW_PROMPT_VERSION}`,
@@ -332,11 +385,78 @@ export async function runPreShowAction(
       actor: { kind: "user", id: user.id, name: user.name },
     });
 
-    return "Preparing the email from Jeff's submission. It will appear in Review.";
+    return describeRun(run, "pre-show engine", "It will appear in Review.");
   }, episodePaths(episodeId));
 }
 
 /* ------------------------------------------------------------ Mailchimp */
+
+/* ------------------------------------------------------------- Printful */
+
+/**
+ * Connect the merch store.
+ *
+ * The verification deliberately reports what Printful DOES and DOES NOT know.
+ * A store that cannot tell us its own website is a store whose products have
+ * no linkable address, and the operator should learn that here rather than
+ * from a briefing full of dead links.
+ */
+export async function connectPrintfulAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const token = String(formData.get("token") ?? "").trim();
+  const requestedStore = String(formData.get("storeId") ?? "").trim();
+  const website = String(formData.get("website") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!token) throw new Error("Paste the Printful API token.");
+
+    const stores = await listStores(token, requestedStore || null);
+    if (stores.length === 0) {
+      throw new Error("That token is valid but reaches no Printful store.");
+    }
+
+    const chosen = requestedStore
+      ? stores.find((s) => String(s.id) === requestedStore)
+      : stores.length === 1
+        ? stores[0]
+        : undefined;
+
+    if (!chosen) {
+      throw new Error(
+        `This token reaches ${stores.length} stores (` +
+          stores.map((s) => `${s.id} ${s.name}`).join(", ") +
+          "). Enter the store ID to say which one.",
+      );
+    }
+
+    // An operator-supplied address wins: Printful often does not store one,
+    // and it is the only thing that makes a product linkable.
+    const resolved = website || chosen.website;
+
+    await saveCredential({
+      provider: "PRINTFUL",
+      kind: "API_KEY",
+      payload: {
+        token,
+        storeId: String(chosen.id),
+        website: resolved ?? null,
+        storeType: chosen.type,
+      },
+      accountLabel: `${chosen.name}${chosen.type ? ` · ${chosen.type}` : ""}`,
+      accountExternalId: String(chosen.id),
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return resolved
+      ? `Connected to "${chosen.name}". Shop address: ${resolved}`
+      : `Connected to "${chosen.name}", but Printful does not know the shop's web ` +
+          `address — add it above so products can be linked from the email.`;
+  }, ["/studio/integrations", "/studio"]);
+}
 
 export async function connectMailchimpAction(
   _prev: ActionState,

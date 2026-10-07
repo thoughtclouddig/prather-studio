@@ -264,6 +264,58 @@ export async function scheduleCampaign(
   return { scheduledFor };
 }
 
+export interface MailchimpCampaignSummary {
+  id: string;
+  title: string;
+  subject: string;
+  sentAt: string | null;
+  status: string;
+}
+
+/**
+ * Recent campaigns, newest first.
+ *
+ * Used to find a previous briefing to lift standing content out of — the
+ * sponsors and their promo codes live in the sent emails and nowhere else,
+ * so Mailchimp is the system of record for them until they are imported.
+ */
+export async function listCampaigns(count = 20): Promise<MailchimpCampaignSummary[]> {
+  const c = await credential();
+  const data = await call<{
+    campaigns?: Array<{
+      id: string;
+      status: string;
+      send_time?: string;
+      settings?: { title?: string; subject_line?: string };
+    }>;
+  }>(
+    `/campaigns?count=${count}&sort_field=send_time&sort_dir=DESC` +
+      `&fields=campaigns.id,campaigns.status,campaigns.send_time,` +
+      `campaigns.settings.title,campaigns.settings.subject_line`,
+    c,
+  );
+
+  return (data.campaigns ?? []).map((row) => ({
+    id: row.id,
+    title: row.settings?.title ?? "",
+    subject: row.settings?.subject_line ?? "",
+    sentAt: row.send_time ?? null,
+    status: row.status,
+  }));
+}
+
+/** A campaign's rendered content, both halves. */
+export async function getCampaignContent(
+  campaignId: string,
+): Promise<{ html: string; plainText: string }> {
+  const c = await credential();
+  const data = await call<{ html?: string; plain_text?: string }>(
+    `/campaigns/${campaignId}/content`,
+    c,
+  );
+  return { html: data.html ?? "", plainText: data.plain_text ?? "" };
+}
+
 /** Read a campaign back, so the Studio shows Mailchimp's state, not its own. */
 export async function getCampaign(campaignId: string): Promise<MailchimpCampaign | null> {
   const c = await credential();

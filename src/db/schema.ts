@@ -111,6 +111,7 @@ export const integrationProvider = pgEnum("integration_provider", [
   "OPUSCLIP",
   "LOCALS",
   "WORDPRESS",
+  "PRINTFUL",
 ]);
 
 export const credentialKind = pgEnum("credential_kind", ["OAUTH", "API_KEY", "URL_SECRET"]);
@@ -271,6 +272,26 @@ export const settings = pgTable("settings", {
    *    before it in winter. That is a real editorial fact, not a bug, and
    *    deriving the send time from air time would hide it.
    */
+  /**
+   * Masthead logo for the briefing, absolute URL. Null uses the app's own
+   * copy. It is a setting rather than a constant so the image can be moved to
+   * Mailchimp's own hosting without a deploy — an email lives in archives and
+   * forwards for years, and the URL in it has to outlive this deployment.
+   */
+  emailLogoUrl: text("email_logo_url"),
+  /**
+   * How a merch item's public URL is built, e.g.
+   * `https://jeffreyprather.com/shop/{slug}`.
+   *
+   * A template rather than a derived link because the shop is OURS: Printful
+   * fulfils the order but the storefront is part of the website, so the URL
+   * scheme is a decision we make rather than a third party's pattern to
+   * reverse-engineer. Null means merch has no link yet, and the briefing omits
+   * the block rather than linking somewhere that does not exist.
+   *
+   * Tokens: {slug} {id} {external_id}
+   */
+  merchUrlTemplate: text("merch_url_template"),
   emailSendTime: text("email_send_time"),
   emailSendTimezone: text("email_send_timezone"),
   /** Real Jeff writing. Seeds the future content engine; nothing reads it yet. */
@@ -285,6 +306,44 @@ export const settings = pgTable("settings", {
   appEnvironment: text("app_environment"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * Merch carried in the briefing.
+ *
+ * Denormalised from Printful on purpose. The email must render from our own
+ * data: a live API call at send time means Printful being slow or down is a
+ * briefing that does not go out, and the name and price a subscriber was shown
+ * should be the ones that were reviewed, not whatever the store said later.
+ */
+export const merchItems = pgTable(
+  "merch_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    showId: uuid("show_id")
+      .notNull()
+      .references(() => shows.id, { onDelete: "cascade" }),
+    /** Printful's sync product id. The join back for a re-sync. */
+    printfulId: text("printful_id").notNull(),
+    /** The storefront's own id, when the store reports one. */
+    externalId: text("external_id"),
+    name: text("name").notNull(),
+    /** Slugified name, the usual token in a shop URL. */
+    slug: text("slug").notNull(),
+    imageUrl: text("image_url"),
+    price: text("price"),
+    currency: text("currency"),
+    /** Only featured items appear in the email. Syncing never sets this. */
+    featured: boolean("featured").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("merch_items_show_idx").on(t.showId),
+    uniqueIndex("merch_items_show_printful_unique").on(t.showId, t.printfulId),
+  ],
+);
 
 /* --------------------------------------------------------------- episodes */
 

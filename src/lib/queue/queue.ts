@@ -15,7 +15,7 @@
  */
 import { and, eq, inArray, sql as raw } from "drizzle-orm";
 import { db, sql } from "@/db/client";
-import { jobs, type Job } from "@/db/schema";
+import { jobs, type Job, type JobState } from "@/db/schema";
 import { recordActivity, type Actor, SYSTEM_ACTOR } from "@/lib/domain/activity";
 
 /** First retry after ~3s, then ~6s, ~12s … plus jitter. */
@@ -260,6 +260,79 @@ export class JobDeferred extends Error {
  * the job gets a genuinely fresh run; `lastError` is kept until the next
  * attempt overwrites it, so the Jobs page can still say why it died.
  */
+/**
+ * Enqueue, or re-run the job that is already holding the idempotency key.
+ *
+ * ## The failure this exists to stop
+ *
+ * Idempotency keys are deterministic on purpose — the manual button and the
+ * automatic chain must deduplicate against each other, or pressing the button
+ * on an episode the chain already packaged produces two of every draft.
+ *
+ * But a deterministic key is also a one-shot: once that key exists, `enqueue`
+ * silently does nothing forever. The actions were ignoring `created` and
+ * reporting "Queued the content engine" either way, so an operator pressing
+ * the button on an episode whose job had already finished got a green message,
+ * no drafts, and nothing anywhere saying why. That is precisely the fake
+ * automation this system is supposed to refuse: a control that reports success
+ * without doing anything.
+ *
+ * So pressing it again RE-RUNS the existing job rather than no-opping. Safe
+ * because the packaging handler supersedes its own prior PROPOSED drafts, and
+ * approved ones are never discarded by a machine.
+ */
+export type RunOutcome =
+  | { outcome: "queued"; job: Job }
+  | { outcome: "rerun"; job: Job; previousState: JobState; previousError: string | null }
+  | { outcome: "already-running"; job: Job };
+
+export async function enqueueOrRerun(options: EnqueueOptions): Promise<RunOutcome> {
+  const result = await enqueue(options);
+  if (result.created) return { outcome: "queued", job: result.job };
+
+  const existing = result.job;
+
+  // PENDING or RUNNING is genuinely already in flight; re-running would only
+  // reset a job that is about to do the work anyway.
+  if (existing.state === "PENDING" || existing.state === "RUNNING") {
+    return { outcome: "already-running", job: existing };
+  }
+
+  const [reset] = await db
+    .update(jobs)
+    .set({
+      state: "PENDING",
+      attempts: 0,
+      runAfter: new Date(),
+      claimedAt: null,
+      claimedBy: null,
+      startedAt: null,
+      finishedAt: null,
+      lastError: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(jobs.id, existing.id))
+    .returning();
+
+  await recordActivity({
+    actor: options.actor ?? SYSTEM_ACTOR,
+    verb: "job.rerun",
+    subjectType: "job",
+    subjectId: existing.id,
+    episodeId: existing.episodeId,
+    summary: `Re-ran job ${existing.kind}, previously ${existing.state}`,
+    before: { state: existing.state, lastError: existing.lastError },
+    after: { state: "PENDING", attempts: 0 },
+  });
+
+  return {
+    outcome: "rerun",
+    job: reset ?? existing,
+    previousState: existing.state,
+    previousError: existing.lastError ?? null,
+  };
+}
+
 export async function retry(jobId: string, actor: Actor = SYSTEM_ACTOR): Promise<Job> {
   const [updated] = await db
     .update(jobs)

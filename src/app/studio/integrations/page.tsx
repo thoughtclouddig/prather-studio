@@ -9,6 +9,7 @@ import { Panel, StateBadge } from "@/components/ui";
 import {
   ConnectBuzzsproutForm,
   ConnectMailchimpForm,
+  ConnectPrintfulForm,
   ConnectRumbleForm,
   ConnectWordPressForm,
   DisconnectButton,
@@ -76,6 +77,7 @@ export default async function IntegrationsPage({
   const youtube = byProvider.get("YOUTUBE" as IntegrationProvider);
   const rumble = byProvider.get("RUMBLE" as IntegrationProvider);
   const buzzsprout = byProvider.get("BUZZSPROUT" as IntegrationProvider);
+  const printful = byProvider.get("PRINTFUL" as IntegrationProvider);
   const wordpress = byProvider.get("WORDPRESS" as IntegrationProvider);
   const mailchimp = byProvider.get("MAILCHIMP" as IntegrationProvider);
   const canConfigure = can(user.role, "integration.configure");
@@ -462,6 +464,71 @@ export default async function IntegrationsPage({
             </>
           ) : canConfigure ? (
             <ConnectMailchimpForm />
+          ) : (
+            <p className="text-[11px] text-[var(--color-type-lo)]">
+              Only an OWNER can connect integrations.
+            </p>
+          )}
+        </div>
+      </Panel>
+
+      {/* -------------------------------------------------------- PRINTFUL */}
+      <Panel
+        eyebrow="Printful"
+        title="Merch — read only, for the briefing's product block"
+        actions={
+          <StateBadge
+            tone={HEALTH_TONE[printful?.health ?? "DISCONNECTED"]}
+            label={printful?.health ?? "Not connected"}
+          />
+        }
+      >
+        <div className="px-4 py-3.5 space-y-3">
+          <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed max-w-[86ch]">
+            Printful is <strong>fulfilment, not a shopfront</strong> &mdash; it prints and ships,
+            while the page a customer buys from lives elsewhere. So it can tell the Studio what
+            the products are, what they look like and what they cost, but usually not where they
+            are sold. That is why the shop address is asked for separately: without it there is
+            no link to put behind a merch item, and a product block full of dead links is worse
+            than none. Nothing here ever writes to Printful.
+          </p>
+
+          {printful ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <div className="eyebrow mb-1">Store</div>
+                  <div className="text-[13px] font-semibold">
+                    {printful.accountLabel ?? "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Store ID</div>
+                  <div className="mono">{printful.accountExternalId ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Last sync</div>
+                  <div className="mono">
+                    {printful.lastObservedAt ? relative(printful.lastObservedAt) : "never"}
+                  </div>
+                </div>
+              </div>
+
+              {printful.lastError && (
+                <p className="text-[12px] text-[var(--color-signal-red)]">
+                  {printful.lastError}
+                </p>
+              )}
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <Link href="/studio/integrations/printful" className="btn btn-xs">
+                  See what Printful returns
+                </Link>
+                {canConfigure && <DisconnectButton provider="PRINTFUL" />}
+              </div>
+            </>
+          ) : canConfigure ? (
+            <ConnectPrintfulForm />
           ) : (
             <p className="text-[11px] text-[var(--color-type-lo)]">
               Only an OWNER can connect integrations.

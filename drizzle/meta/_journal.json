@@ -78,6 +78,27 @@
       "when": 1791307295791,
       "tag": "0010_quiet_phoenix",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1791307295792,
+      "tag": "0011_bright_masthead",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1791307295793,
+      "tag": "0012_printful_provider",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1791307295794,
+      "tag": "0013_merch_items",
+      "breakpoints": true
     }
   ]
 }
