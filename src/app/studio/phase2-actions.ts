@@ -39,7 +39,7 @@ import { PROMPT_VERSION } from "@/lib/content/package";
 import { PRE_SHOW_PROMPT_VERSION } from "@/lib/content/pre-show";
 import { scheduleBriefingCampaign } from "@/lib/domain/briefing-campaign";
 import { recordActivity } from "@/lib/domain/activity";
-import { enqueue } from "@/lib/queue/queue";
+import { enqueue, enqueueOrRerun, type RunOutcome } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
 import { extractVideoId } from "@/lib/integrations/youtube/video-id";
 import { db } from "@/db/client";
@@ -183,6 +183,30 @@ export async function enqueueCaptionsAction(
   }, episodePaths(episodeId));
 }
 
+/**
+ * Say what actually happened, in the operator's terms.
+ *
+ * A previous failure is surfaced rather than swallowed: the whole reason the
+ * button appeared to do nothing was that the job behind it had already run and
+ * the error lived only in the jobs table.
+ */
+function describeRun(
+  run: RunOutcome,
+  what: string,
+  thenWhat: string,
+): string {
+  switch (run.outcome) {
+    case "queued":
+      return `Queued the ${what}. ${thenWhat}`;
+    case "already-running":
+      return `The ${what} is already queued and has not finished yet. ${thenWhat}`;
+    case "rerun":
+      return run.previousError
+        ? `Re-running the ${what}. The previous attempt ${run.previousState === "DEAD" ? "gave up" : "failed"}: ${run.previousError}`
+        : `Re-running the ${what} — it had already completed for this material. ${thenWhat}`;
+  }
+}
+
 export async function enqueuePackageAction(
   _prev: ActionState,
   formData: FormData,
@@ -210,14 +234,19 @@ export async function enqueuePackageAction(
       );
     }
 
-    await enqueue({
+    // The outcome is REPORTED, not assumed. A deterministic key is a one-shot:
+    // once it exists, a plain enqueue silently does nothing, and this used to
+    // return "Queued the content engine" regardless -- a green message, no
+    // drafts, and nothing on screen explaining the gap.
+    const run = await enqueueOrRerun({
       kind: "episode.package",
       idempotencyKey: `episode.package:${episodeId}:${transcript.id}:${PROMPT_VERSION}`,
       episodeId,
       maxAttempts: 2,
       actor: { kind: "user", id: user.id, name: user.name },
     });
-    return "Queued the content engine. Proposals will appear in Review.";
+
+    return describeRun(run, "content engine", "Proposals will appear in Review.");
   }, episodePaths(episodeId));
 }
 
@@ -347,7 +376,7 @@ export async function runPreShowAction(
       throw new Error("Jeff has not submitted this show yet, so there is nothing to prepare.");
     }
 
-    await enqueue({
+    const run = await enqueueOrRerun({
       kind: "episode.pre_show",
       idempotencyKey:
         `episode.pre_show:${episodeId}:${episode.submittedAt?.getTime() ?? 0}:${PRE_SHOW_PROMPT_VERSION}`,
@@ -356,7 +385,7 @@ export async function runPreShowAction(
       actor: { kind: "user", id: user.id, name: user.name },
     });
 
-    return "Preparing the email from Jeff's submission. It will appear in Review.";
+    return describeRun(run, "pre-show engine", "It will appear in Review.");
   }, episodePaths(episodeId));
 }
 

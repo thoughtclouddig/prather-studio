@@ -2,7 +2,15 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { db } from "@/db/client";
 import { jobs } from "@/db/schema";
-import { backoffMs, claim, enqueue, fail, retry, succeed } from "@/lib/queue/queue";
+import {
+  backoffMs,
+  claim,
+  enqueue,
+  enqueueOrRerun,
+  fail,
+  retry,
+  succeed,
+} from "@/lib/queue/queue";
 import { resetDb } from "./helpers";
 
 beforeEach(resetDb);
@@ -123,5 +131,62 @@ describe("job queue", () => {
     expect(backoffMs(1, 1000)).toBeGreaterThanOrEqual(1000);
     expect(backoffMs(3, 1000)).toBeGreaterThan(backoffMs(1, 1000));
     expect(backoffMs(50, 1000)).toBeLessThanOrEqual(5 * 60_000 * 1.2 + 1);
+  });
+});
+
+/**
+ * A deterministic idempotency key is a one-shot. Once it exists, `enqueue`
+ * does nothing forever — which is correct for deduplication and wrong for a
+ * button an operator presses to re-run something. The content engine button
+ * reported "Queued" either way, so a finished job produced a green message,
+ * no drafts, and nothing on screen explaining the gap.
+ */
+describe("re-running the job behind a deterministic key", () => {
+  it("queues normally the first time", async () => {
+    const run = await enqueueOrRerun({ kind: "ping", idempotencyKey: "r1" });
+    expect(run.outcome).toBe("queued");
+  });
+
+  it("re-runs a SUCCEEDED job instead of silently doing nothing", async () => {
+    const { job } = await enqueue({ kind: "ping", idempotencyKey: "r2" });
+    await claim("w", 5);
+    await succeed(job.id, {});
+
+    const run = await enqueueOrRerun({ kind: "ping", idempotencyKey: "r2" });
+    expect(run.outcome).toBe("rerun");
+    if (run.outcome === "rerun") expect(run.previousState).toBe("SUCCEEDED");
+
+    const [after] = await db.select().from(jobs).where(eq(jobs.id, job.id));
+    expect(after?.state).toBe("PENDING");
+    expect(after?.attempts).toBe(0);
+
+    // Re-run, not duplicated — two of every draft is the bug this key exists
+    // to prevent, and the fix must not reintroduce it.
+    expect(await db.select().from(jobs)).toHaveLength(1);
+  });
+
+  it("surfaces the previous error when the job had failed", async () => {
+    const { job } = await enqueue({ kind: "ping", idempotencyKey: "r3", maxAttempts: 1 });
+    await claim("w", 5);
+    await fail(job.id, "Anthropic refused the request");
+
+    const run = await enqueueOrRerun({ kind: "ping", idempotencyKey: "r3" });
+    expect(run.outcome).toBe("rerun");
+    if (run.outcome === "rerun") {
+      expect(run.previousError).toContain("Anthropic refused the request");
+    }
+  });
+
+  it("leaves a job that is still PENDING alone", async () => {
+    await enqueue({ kind: "ping", idempotencyKey: "r4" });
+    const run = await enqueueOrRerun({ kind: "ping", idempotencyKey: "r4" });
+    expect(run.outcome).toBe("already-running");
+  });
+
+  it("leaves a RUNNING job alone rather than resetting work in flight", async () => {
+    await enqueue({ kind: "ping", idempotencyKey: "r5" });
+    await claim("w", 5);
+    const run = await enqueueOrRerun({ kind: "ping", idempotencyKey: "r5" });
+    expect(run.outcome).toBe("already-running");
   });
 });
