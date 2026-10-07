@@ -35,6 +35,7 @@ import {
   type Platform,
 } from "@/db/schema";
 import { recordActivity, workerActor } from "@/lib/domain/activity";
+import { sendSubmissionNotice } from "@/lib/domain/submission-notice";
 import { applyBroadcastEvidence } from "@/lib/domain/broadcast-apply";
 import { decidePoll, readLiveDetails } from "@/lib/domain/broadcast-poll";
 import { evaluateBroadcast } from "@/lib/domain/broadcast";
@@ -596,6 +597,20 @@ const integrationHealthCheck: Handler = async () => {
   return { checked: rows.length, results };
 };
 
+/**
+ * Email the operator that Jeff has filed.
+ *
+ * Queued rather than sent inline: his form must not hang or fail because a
+ * mail provider is slow, and he is the one person here who cannot be asked
+ * to try again.
+ */
+const notifySubmission: Handler = async (job) => {
+  const payload = job.payload as { episodeId?: string; resubmitted?: boolean };
+  if (!payload.episodeId) throw new Error("notify.submission needs an episodeId.");
+  const { to, id } = await sendSubmissionNotice(payload.episodeId, !!payload.resubmitted);
+  return { to, messageId: id };
+};
+
 export const HANDLERS: Record<string, Handler> = {
   ping,
   "fail-test": failTest,
@@ -603,6 +618,7 @@ export const HANDLERS: Record<string, Handler> = {
   "youtube.fetch_captions": fetchCaptions,
   "episode.package": packageEpisodeHandler,
   "episode.pre_show": preShowHandler,
+  "notify.submission": notifySubmission,
   "rumble.poll_live": pollRumble,
   "youtube.poll_broadcast": pollYouTubeBroadcast,
   "buzzsprout.sync_recent": syncBuzzsproutRecent,

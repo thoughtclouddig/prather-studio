@@ -28,6 +28,7 @@ import { and, eq, gte, lte } from "drizzle-orm";
 import { db } from "@/db/client";
 import { episodes, shows } from "@/db/schema";
 import { recordActivity } from "@/lib/domain/activity";
+import { enqueue } from "@/lib/queue/queue";
 import { createEpisodeRecord } from "@/lib/domain/create-episode";
 import { cadenceFrom } from "@/lib/domain/schedule";
 import { parseWallTime, zonedTimeToInstant } from "@/lib/time/zone";
@@ -92,6 +93,36 @@ const SAME_SHOW_WINDOW_MS = 6 * 60 * 60 * 1000;
  * broadcast would split everything downstream — the match, the transcript, the
  * post — in a way that is tedious to unpick.
  */
+
+/**
+ * Queue the operator's notification.
+ *
+ * Never allowed to fail the submission. Jeff pressing Submit has to end with
+ * his show recorded; whether an email went out is a separate concern, and the
+ * queue retries it on its own.
+ *
+ * The key is per episode per submission instant, so a resubmission notifies
+ * again while a double-click does not.
+ */
+async function queueNotice(
+  episodeId: string,
+  submittedAt: Date,
+  resubmitted: boolean,
+): Promise<void> {
+  try {
+    await enqueue({
+      kind: "notify.submission",
+      idempotencyKey: `notify.submission:${episodeId}:${submittedAt.getTime()}`,
+      episodeId,
+      payload: { episodeId, resubmitted },
+      maxAttempts: 4,
+    });
+  } catch {
+    // Swallowed on purpose. A queue write failing is not a reason to tell
+    // Jeff his show did not save, because it did.
+  }
+}
+
 export async function recordHostSubmission(
   submission: HostSubmission,
 ): Promise<{ episodeId: string; created: boolean }> {
@@ -140,6 +171,7 @@ export async function recordHostSubmission(
       after: hostFields,
     });
 
+    await queueNotice(existing.id, now, true);
     return { episodeId: existing.id, created: false };
   }
 
@@ -167,6 +199,7 @@ export async function recordHostSubmission(
     after: hostFields,
   });
 
+  await queueNotice(episode.id, now, false);
   return { episodeId: episode.id, created: true };
 }
 

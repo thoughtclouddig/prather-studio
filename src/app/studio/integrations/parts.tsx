@@ -6,6 +6,7 @@ import {
   connectBuzzsproutAction,
   connectMailchimpAction,
   connectPrintfulAction,
+  connectResendAction,
   connectRumbleAction,
   connectWordPressAction,
   disconnectIntegrationAction,
@@ -305,6 +306,61 @@ export function ConnectPrintfulForm() {
         The shop address matters: Printful fulfils orders but does not host the shop, so it
         usually cannot tell us where a product is actually bought. Without an address the
         Studio has no link to put behind a merch item.
+      </p>
+      <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ConnectResendForm() {
+  const [state, action] = useActionState(connectResendAction, undefined);
+  return (
+    <form action={action} className="space-y-2">
+      <label className="block">
+        <span className="eyebrow block mb-1.5">API key</span>
+        <input
+          name="apiKey"
+          type="password"
+          required
+          autoComplete="off"
+          placeholder="re_…"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">From address</span>
+        <input
+          name="from"
+          type="text"
+          required
+          autoComplete="off"
+          defaultValue="onboarding@resend.dev"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">Notify this address</span>
+        <input
+          name="notifyEmail"
+          type="email"
+          required
+          autoComplete="off"
+          placeholder="you@example.com"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        Resend &rarr; <span className="mono">API Keys</span>. Only used for operator
+        notices &mdash; a submission landing, nothing else. The briefing still goes out
+        through Mailchimp, on its own credential.
+      </p>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        <span className="mono">onboarding@resend.dev</span> works immediately and is fine
+        for a notice to yourself. Verify a domain in Resend when you want these to come
+        from your own address; the From is checked here against your verified domains,
+        because Resend otherwise refuses at send time &mdash; which looks like an email
+        that simply never arrived.
       </p>
       <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
       <Feedback state={state} />

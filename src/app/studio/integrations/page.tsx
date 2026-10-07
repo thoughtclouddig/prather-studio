@@ -3,13 +3,16 @@ import { requireUser } from "@/lib/auth/require";
 import { can } from "@/lib/auth/authorize";
 import { listIntegrations } from "@/lib/integrations/credentials";
 import { SCOPE_RATIONALE, YOUTUBE_SCOPES } from "@/lib/integrations/youtube/scopes";
-import type { IntegrationProvider } from "@/db/schema";
+import { eq } from "drizzle-orm";
+import { db } from "@/db/client";
+import { settings, type IntegrationProvider } from "@/db/schema";
 import { relative, stamp } from "@/lib/format";
 import { Panel, StateBadge } from "@/components/ui";
 import {
   ConnectBuzzsproutForm,
   ConnectMailchimpForm,
   ConnectPrintfulForm,
+  ConnectResendForm,
   ConnectRumbleForm,
   ConnectWordPressForm,
   DisconnectButton,
@@ -78,6 +81,8 @@ export default async function IntegrationsPage({
   const rumble = byProvider.get("RUMBLE" as IntegrationProvider);
   const buzzsprout = byProvider.get("BUZZSPROUT" as IntegrationProvider);
   const printful = byProvider.get("PRINTFUL" as IntegrationProvider);
+  const resend = byProvider.get("RESEND" as IntegrationProvider);
+  const [config] = await db.select().from(settings).where(eq(settings.id, "global")).limit(1);
   const wordpress = byProvider.get("WORDPRESS" as IntegrationProvider);
   const mailchimp = byProvider.get("MAILCHIMP" as IntegrationProvider);
   const canConfigure = can(user.role, "integration.configure");
@@ -529,6 +534,59 @@ export default async function IntegrationsPage({
             </>
           ) : canConfigure ? (
             <ConnectPrintfulForm />
+          ) : (
+            <p className="text-[11px] text-[var(--color-type-lo)]">
+              Only an OWNER can connect integrations.
+            </p>
+          )}
+        </div>
+      </Panel>
+
+      {/* ---------------------------------------------------------- RESEND */}
+      <Panel
+        eyebrow="Resend"
+        title="Operator notices — one line, to one person"
+        actions={
+          <StateBadge
+            tone={HEALTH_TONE[resend?.health ?? "DISCONNECTED"]}
+            label={resend?.health ?? "Not connected"}
+          />
+        }
+      >
+        <div className="px-4 py-3.5 space-y-3">
+          <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed max-w-[86ch]">
+            Emails you when Jeff submits the form, with his headline, his topics and a link
+            to the episode. Deliberately a separate credential from Mailchimp: that one
+            reaches the whole audience and this one reaches you, and the key that tells you
+            Jeff has filed should not also be able to mail the list. The notice is queued,
+            not sent inline &mdash; his form cannot be made to hang by a slow mail provider.
+          </p>
+
+          {resend ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <div className="eyebrow mb-1">Sends from</div>
+                  <div className="mono text-[12px]">{resend.accountLabel ?? "—"}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Notifies</div>
+                  <div className="mono text-[12px]">{config?.notifyEmail ?? "not set"}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Last sync</div>
+                  <div className="mono">
+                    {resend.lastObservedAt ? relative(resend.lastObservedAt) : "never"}
+                  </div>
+                </div>
+              </div>
+              {resend.lastError && (
+                <p className="text-[12px] text-[var(--color-signal-red)]">{resend.lastError}</p>
+              )}
+              {canConfigure && <DisconnectButton provider="RESEND" />}
+            </>
+          ) : canConfigure ? (
+            <ConnectResendForm />
           ) : (
             <p className="text-[11px] text-[var(--color-type-lo)]">
               Only an OWNER can connect integrations.

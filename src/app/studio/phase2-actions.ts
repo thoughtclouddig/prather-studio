@@ -30,6 +30,7 @@ import {
 } from "@/lib/integrations/mailchimp/client";
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
 import { listStores } from "@/lib/integrations/printful/client";
+import { verifyKey as verifyResendKey } from "@/lib/integrations/resend/client";
 import {
   listRecentVideos,
   listUpcomingBroadcasts,
@@ -43,7 +44,7 @@ import { enqueue, enqueueOrRerun, type RunOutcome } from "@/lib/queue/queue";
 import { fromShowInputValue } from "@/lib/format";
 import { extractVideoId } from "@/lib/integrations/youtube/video-id";
 import { db } from "@/db/client";
-import { episodes, type IntegrationProvider, episodeTranscripts, episodeContentDrafts, episodeImages, episodePublications} from "@/db/schema";
+import { episodes, type IntegrationProvider, episodeTranscripts, episodeContentDrafts, episodeImages, episodePublications, settings } from "@/db/schema";
 import { and, desc, eq, ne } from "drizzle-orm";
 import type { ActionState } from "./actions";
 
@@ -390,6 +391,69 @@ export async function runPreShowAction(
 }
 
 /* ------------------------------------------------------------ Mailchimp */
+
+/* --------------------------------------------------------------- Resend */
+
+/**
+ * Connect transactional mail, and set who the notification goes to.
+ *
+ * The recipient is stored with the connection rather than left to be
+ * configured separately, because a connected mail provider with nowhere to
+ * send is a notification that silently never arrives.
+ */
+export async function connectResendAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const apiKey = String(formData.get("apiKey") ?? "").trim();
+  const from = String(formData.get("from") ?? "").trim();
+  const notify = String(formData.get("notifyEmail") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!apiKey) throw new Error("Paste the Resend API key.");
+    if (!from) throw new Error("Set the From address.");
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(notify)) {
+      throw new Error("Set a valid address to notify.");
+    }
+
+    const { domains } = await verifyResendKey(apiKey);
+
+    // Resend refuses a From on an unverified domain, and does it at send
+    // time — which here means a notification that is only missed, never
+    // seen to fail. Better to refuse while someone is looking at the form.
+    const fromDomain = from.split("@")[1]?.toLowerCase() ?? "";
+    const onboarding = fromDomain === "resend.dev";
+    if (!onboarding && domains.length > 0 && !domains.includes(fromDomain)) {
+      throw new Error(
+        `Resend has no verified domain "${fromDomain}". Verified: ` +
+          `${domains.join(", ")}. Or use onboarding@resend.dev to start.`,
+      );
+    }
+
+    await saveCredential({
+      provider: "RESEND",
+      kind: "API_KEY",
+      payload: { apiKey, from },
+      accountLabel: from,
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    await db
+      .insert(settings)
+      .values({ id: "global", notifyEmail: notify })
+      .onConflictDoUpdate({
+        target: settings.id,
+        set: { notifyEmail: notify, updatedAt: new Date() },
+      });
+
+    return onboarding
+      ? `Connected. Notifications go to ${notify} from Resend's shared sender — ` +
+          `verify a domain when you want them to come from jeffreyprather.com.`
+      : `Connected. Notifications go to ${notify} from ${from}.`;
+  }, ["/studio/integrations", "/studio/settings"]);
+}
 
 /* ------------------------------------------------------------- Printful */
 

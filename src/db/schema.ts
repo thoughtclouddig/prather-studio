@@ -112,6 +112,7 @@ export const integrationProvider = pgEnum("integration_provider", [
   "LOCALS",
   "WORDPRESS",
   "PRINTFUL",
+  "RESEND",
 ]);
 
 export const credentialKind = pgEnum("credential_kind", ["OAUTH", "API_KEY", "URL_SECRET"]);
@@ -292,6 +293,12 @@ export const settings = pgTable("settings", {
    * Tokens: {slug} {id} {external_id}
    */
   merchUrlTemplate: text("merch_url_template"),
+  /**
+   * Where operator notifications go — a submission landing, nothing else.
+   * One address, because this is "tell me Jeff has filed" and not a mailing
+   * list; the briefing's audience is Mailchimp's business.
+   */
+  notifyEmail: text("notify_email"),
   emailSendTime: text("email_send_time"),
   emailSendTimezone: text("email_send_timezone"),
   /** Real Jeff writing. Seeds the future content engine; nothing reads it yet. */

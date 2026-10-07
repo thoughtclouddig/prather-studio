@@ -99,6 +99,13 @@
       "when": 1791307295794,
       "tag": "0013_merch_items",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791307295795,
+      "tag": "0014_notify_email",
+      "breakpoints": true
     }
   ]
 }
