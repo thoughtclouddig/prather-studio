@@ -31,8 +31,10 @@
  */
 import "dotenv/config";
 import { readFile } from "node:fs/promises";
+import { getTableColumns, getTableName } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import { db, sql } from "./client";
+import * as schema from "./schema";
 
 /**
  * Postgres codes meaning "this object is already here".
@@ -64,7 +66,7 @@ interface JournalEntry {
  * `when` against the newest `created_at` it has recorded. Stamping that value
  * is therefore what "this is applied" means to it.
  */
-async function reconcile(): Promise<{ applied: string[]; skipped: number }> {
+async function reconcile(force = false): Promise<{ applied: string[]; skipped: number }> {
   const journal = JSON.parse(
     await readFile("./drizzle/meta/_journal.json", "utf8"),
   ) as { entries: JournalEntry[] };
@@ -73,7 +75,9 @@ async function reconcile(): Promise<{ applied: string[]; skipped: number }> {
     SELECT created_at FROM drizzle.__drizzle_migrations
     ORDER BY created_at DESC LIMIT 1
   `;
-  const lastApplied = Number(recorded[0]?.created_at ?? 0);
+  // In force mode the journal is known to be lying, so it is ignored and
+  // every migration is replayed tolerantly.
+  const lastApplied = force ? 0 : Number(recorded[0]?.created_at ?? 0);
 
   const applied: string[] = [];
   let skipped = 0;
@@ -102,7 +106,10 @@ async function reconcile(): Promise<{ applied: string[]; skipped: number }> {
     // again on the next boot.
     await sql`
       INSERT INTO drizzle.__drizzle_migrations (hash, created_at)
-      VALUES (${entry.tag}, ${entry.when})
+      SELECT ${entry.tag}, ${entry.when}
+      WHERE NOT EXISTS (
+        SELECT 1 FROM drizzle.__drizzle_migrations WHERE created_at = ${entry.when}
+      )
     `;
     applied.push(entry.tag);
   }
@@ -126,6 +133,55 @@ function banner(lines: string[]): void {
   console.error(`\n${rule}\n${lines.join("\n")}\n${rule}\n`);
 }
 
+/**
+ * Does the database actually have the columns the code is about to select?
+ *
+ * The journal is not evidence. Production's said every migration was applied
+ * while `settings.email_logo_url` did not exist, so `migrate()` succeeded,
+ * applied nothing, threw nothing — and every page reading that table returned
+ * a 500 with `column "email_logo_url" does not exist`.
+ *
+ * Reconciling only on a thrown error cannot catch that, because nothing
+ * throws. So the check is against the real schema: compare the columns the
+ * Drizzle table definitions declare with the ones information_schema reports.
+ * Derived from the table objects rather than a hand-written list, so a new
+ * column is covered the day it is added.
+ */
+async function schemaDrift(): Promise<string[]> {
+  const tables = [
+    schema.settings,
+    schema.shows,
+    schema.episodes,
+    schema.merchItems,
+    schema.sponsors,
+  ];
+
+  const missing: string[] = [];
+
+  for (const table of tables) {
+    const name = getTableName(table);
+    const expected = Object.values(getTableColumns(table)).map((c) => c.name);
+
+    const present = await sql<{ column_name: string }[]>`
+      SELECT column_name FROM information_schema.columns
+      WHERE table_schema = 'public' AND table_name = ${name}
+    `;
+
+    // A table that is absent entirely is reported once, not column by column.
+    if (present.length === 0) {
+      missing.push(`${name} (whole table)`);
+      continue;
+    }
+
+    const have = new Set(present.map((r) => r.column_name));
+    for (const column of expected) {
+      if (!have.has(column)) missing.push(`${name}.${column}`);
+    }
+  }
+
+  return missing;
+}
+
 async function main() {
   const established = await hasSchema();
 
@@ -138,6 +194,32 @@ async function main() {
   try {
     await migrate(db, { migrationsFolder: "./drizzle" });
     console.log("[migrate] done");
+
+    // Succeeding is not the same as being correct.
+    const drifted = await schemaDrift();
+    if (drifted.length > 0) {
+      console.error(
+        `[migrate] journal says applied, but the schema is missing: ${drifted.join(", ")}`,
+      );
+      const { applied, skipped } = await reconcile(true);
+      console.log(
+        `[migrate] forced replay: ${applied.length} migration(s), ` +
+          `skipped ${skipped} statement(s) whose object already existed`,
+      );
+
+      const still = await schemaDrift();
+      if (still.length > 0) {
+        banner([
+          "SCHEMA IS STILL MISSING COLUMNS AFTER A FORCED REPLAY.",
+          "",
+          still.join(", "),
+          "",
+          "Starting anyway; pages using these will error.",
+        ]);
+      } else {
+        console.log("[migrate] schema now matches the code");
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
