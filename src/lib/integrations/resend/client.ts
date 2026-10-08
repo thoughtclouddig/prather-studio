@@ -13,6 +13,15 @@ import { readCredential } from "@/lib/integrations/credentials";
 
 const API = "https://api.resend.com";
 
+/** "RESEND_FROM = a@b.com" -> "a@b.com". See normalizeEmail for why. */
+function stripAssignment(raw: string | undefined): string {
+  return (raw ?? "")
+    .trim()
+    .replace(/^[A-Z_][A-Z0-9_]*\s*=\s*/i, "")
+    .replace(/^["']|["']$/g, "")
+    .trim();
+}
+
 export interface ResendCredentialPayload {
   apiKey: string;
   /** Verified sender. Resend rejects anything else. */
@@ -62,8 +71,10 @@ async function credential(): Promise<ResendCredentialPayload> {
   return {
     apiKey,
     // Resend's shared sender works with no domain setup. A real address
-    // belongs in RESEND_FROM once a domain is verified.
-    from: process.env.RESEND_FROM?.trim() || "onboarding@resend.dev",
+    // belongs in RESEND_FROM once a domain is verified. Stripped the same way
+    // as the recipient: a secret pasted as "RESEND_FROM = a@b.com" is a
+    // mistake this project has made before.
+    from: stripAssignment(process.env.RESEND_FROM) || "onboarding@resend.dev",
   };
 }
 

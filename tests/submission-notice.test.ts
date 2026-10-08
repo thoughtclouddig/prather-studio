@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { composeSubmissionNotice } from "@/lib/domain/submission-notice";
+import {
+  composeSubmissionNotice,
+  normalizeEmail,
+} from "@/lib/domain/submission-notice";
 
 const BASE = {
   headline: "Iraq Israeli False Flag War Trap",
@@ -47,5 +50,41 @@ describe("the submission notice", () => {
     const withNotes = composeSubmissionNotice({ ...BASE, notes: "Guest may run late" });
     expect(withNotes.text).toContain("ANYTHING ELSE");
     expect(withNotes.text).toContain("Guest may run late");
+  });
+});
+
+describe("addresses pasted from Secrets", () => {
+  it("leaves an ordinary address exactly as it is", () => {
+    expect(normalizeEmail("andyrenk@gmail.com")).toBe("andyrenk@gmail.com");
+    expect(normalizeEmail("andy@thoughtclouddigital.com")).toBe(
+      "andy@thoughtclouddigital.com",
+    );
+  });
+
+  /**
+   * The whole line pasted as the value. APP_BASE_URL held its own
+   * documentation line once in this project and sent a malformed redirect_uri
+   * to Google; the same paste here produces Resend's "Invalid `to` field",
+   * which says nothing about why either.
+   */
+  it("strips a pasted assignment", () => {
+    expect(normalizeEmail("NOTIFY_EMAIL = andyrenk@gmail.com")).toBe("andyrenk@gmail.com");
+    expect(normalizeEmail("NOTIFY_EMAIL=andyrenk@gmail.com")).toBe("andyrenk@gmail.com");
+  });
+
+  it("strips quotes and whitespace", () => {
+    expect(normalizeEmail('  "andyrenk@gmail.com"  ')).toBe("andyrenk@gmail.com");
+    expect(normalizeEmail("'andyrenk@gmail.com'")).toBe("andyrenk@gmail.com");
+  });
+
+  it("keeps a display name, which Resend accepts", () => {
+    expect(normalizeEmail("Andy <andy@example.com>")).toBe("Andy <andy@example.com>");
+  });
+
+  it("refuses something that is not an address, so the error names the cause", () => {
+    expect(normalizeEmail("not an email")).toBeNull();
+    expect(normalizeEmail("andy@localhost")).toBeNull();
+    expect(normalizeEmail("")).toBeNull();
+    expect(normalizeEmail(null)).toBeNull();
   });
 });

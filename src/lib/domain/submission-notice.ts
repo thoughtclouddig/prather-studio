@@ -17,6 +17,39 @@ import { appBaseUrl } from "@/lib/app-url";
 import { topicLines } from "@/lib/domain/intake";
 import { sendNotification } from "@/lib/integrations/resend/client";
 
+/**
+ * Clean a configured email address.
+ *
+ * A secret pasted whole — `NOTIFY_EMAIL = andy@example.com` rather than just
+ * the address — has already cost this project once: APP_BASE_URL held its own
+ * documentation line and sent a malformed redirect_uri to Google, which
+ * surfaced as an OAuth error that said nothing about the cause. The same
+ * paste here produces "Invalid `to` field" from Resend, which is equally
+ * uninformative about why.
+ *
+ * So the same hardening: strip a leading `KEY =`, strip quotes, trim. Then
+ * check it actually looks like an address, because failing here names the
+ * problem while failing at the provider does not.
+ */
+export function normalizeEmail(raw: string | null | undefined): string | null {
+  let value = raw?.trim();
+  if (!value) return null;
+
+  // "NOTIFY_EMAIL = andy@example.com" -> "andy@example.com"
+  value = value.replace(/^[A-Z_][A-Z0-9_]*\s*=\s*/i, "").trim();
+  // Quotes only — not angle brackets, which are part of a display name.
+  value = value.replace(/^["']|["']$/g, "").trim();
+  if (!value) return null;
+
+  // "Andy <andy@example.com>" is valid to Resend; keep it, but validate the
+  // address inside it rather than the whole string.
+  const angled = /<([^>]+)>\s*$/.exec(value);
+  const address = (angled ? angled[1]! : value).trim();
+
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(address)) return null;
+  return value;
+}
+
 export class NoRecipientError extends Error {
   constructor() {
     super(
@@ -77,8 +110,17 @@ export async function sendSubmissionNotice(
   const [config] = await db.select().from(settings).where(eq(settings.id, "global")).limit(1);
   // Settings first, then the environment — same order as the credential, so
   // configuring the whole thing through Replit Secrets works end to end.
-  const to = config?.notifyEmail?.trim() || process.env.NOTIFY_EMAIL?.trim();
-  if (!to) throw new NoRecipientError();
+  const raw = config?.notifyEmail ?? process.env.NOTIFY_EMAIL;
+  const to = normalizeEmail(raw);
+  if (!to) {
+    if (raw?.trim()) {
+      throw new Error(
+        `"${raw.trim()}" is not an email address. If you pasted the whole line ` +
+          `into Secrets, the value should be just the address.`,
+      );
+    }
+    throw new NoRecipientError();
+  }
 
   const notice = composeSubmissionNotice({
     headline: episode.hostHeadline ?? episode.workingTitle,
