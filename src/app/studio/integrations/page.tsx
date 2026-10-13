@@ -14,6 +14,7 @@ import {
   ConnectMailchimpForm,
   ConnectPrintfulForm,
   ConnectResendForm,
+  ConnectOpusClipForm,
   ConnectRumbleForm,
   ConnectWordPressForm,
   DisconnectButton,
@@ -83,6 +84,7 @@ export default async function IntegrationsPage({
   const buzzsprout = byProvider.get("BUZZSPROUT" as IntegrationProvider);
   const printful = byProvider.get("PRINTFUL" as IntegrationProvider);
   const resend = byProvider.get("RESEND" as IntegrationProvider);
+  const opusclip = byProvider.get("OPUSCLIP" as IntegrationProvider);
   // A key in Replit Secrets works but writes no integration row, so the
   // panel would otherwise read "Not connected" while mail was going out.
   const resendSourceKind = await resendSource();
@@ -624,6 +626,65 @@ export default async function IntegrationsPage({
             </>
           ) : canConfigure ? (
             <ConnectResendForm />
+          ) : (
+            <p className="text-[11px] text-[var(--color-type-lo)]">
+              Only an OWNER can connect integrations.
+            </p>
+          )}
+        </div>
+      </Panel>
+
+      {/* -------------------------------------------------------- OPUSCLIP */}
+      <Panel
+        eyebrow="OpusClip"
+        title="Clips — sent out, returned by callback"
+        actions={
+          <StateBadge
+            tone={HEALTH_TONE[opusclip?.health ?? "DISCONNECTED"]}
+            label={opusclip?.health ?? "Not connected"}
+          />
+        }
+      >
+        <div className="px-4 py-3.5 space-y-3">
+          <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed max-w-[86ch]">
+            Sends the finished recording for clipping and stores what comes back &mdash;
+            titles, transcripts, hashtags and the rendered files. The work is asynchronous,
+            so OpusClip calls us when it is done rather than the Studio waiting. Their
+            storage expires, so the clips are copied into our own records instead of being
+            read live.
+          </p>
+
+          {opusclip ? (
+            <>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <div>
+                  <div className="eyebrow mb-1">Account</div>
+                  <div className="text-[13px] font-semibold">
+                    {opusclip.accountLabel ?? "—"}
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Callback</div>
+                  <div className="mono text-[11px] break-all">
+                    /api/integrations/opusclip/webhook
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">Last sync</div>
+                  <div className="mono">
+                    {opusclip.lastObservedAt ? relative(opusclip.lastObservedAt) : "never"}
+                  </div>
+                </div>
+              </div>
+              {opusclip.lastError && (
+                <p className="text-[12px] text-[var(--color-signal-red)]">
+                  {opusclip.lastError}
+                </p>
+              )}
+              {canConfigure && <DisconnectButton provider="OPUSCLIP" />}
+            </>
+          ) : canConfigure ? (
+            <ConnectOpusClipForm />
           ) : (
             <p className="text-[11px] text-[var(--color-type-lo)]">
               Only an OWNER can connect integrations.

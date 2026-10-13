@@ -36,6 +36,7 @@ import {
 } from "@/db/schema";
 import { recordActivity, workerActor } from "@/lib/domain/activity";
 import { sendSubmissionNotice } from "@/lib/domain/submission-notice";
+import { collectClips } from "@/lib/domain/opusclip-run";
 import { applyBroadcastEvidence } from "@/lib/domain/broadcast-apply";
 import { decidePoll, readLiveDetails } from "@/lib/domain/broadcast-poll";
 import { evaluateBroadcast } from "@/lib/domain/broadcast";
@@ -611,6 +612,13 @@ const notifySubmission: Handler = async (job) => {
   return { to, messageId: id };
 };
 
+/** Fetch the clips OpusClip just told us about. */
+const collectOpusClips: Handler = async (job) => {
+  const payload = job.payload as { projectId?: string; failed?: boolean };
+  if (!payload.projectId) throw new Error("opusclip.collect needs a projectId.");
+  return collectClips(payload.projectId, { failed: payload.failed });
+};
+
 export const HANDLERS: Record<string, Handler> = {
   ping,
   "fail-test": failTest,
@@ -619,6 +627,7 @@ export const HANDLERS: Record<string, Handler> = {
   "episode.package": packageEpisodeHandler,
   "episode.pre_show": preShowHandler,
   "notify.submission": notifySubmission,
+  "opusclip.collect": collectOpusClips,
   "rumble.poll_live": pollRumble,
   "youtube.poll_broadcast": pollYouTubeBroadcast,
   "buzzsprout.sync_recent": syncBuzzsproutRecent,

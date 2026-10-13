@@ -31,6 +31,8 @@ import {
 import { normalizeRumbleInput } from "@/lib/integrations/rumble/credential-input";
 import { listStores } from "@/lib/integrations/printful/client";
 import { verifyKey as verifyResendKey } from "@/lib/integrations/resend/client";
+import { verifyKey as verifyOpusKey } from "@/lib/integrations/opusclip/client";
+import { startClipRun } from "@/lib/domain/opusclip-run";
 import {
   listRecentVideos,
   listUpcomingBroadcasts,
@@ -391,6 +393,57 @@ export async function runPreShowAction(
 }
 
 /* ------------------------------------------------------------ Mailchimp */
+
+/* ------------------------------------------------------------- OpusClip */
+
+export async function connectOpusClipAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const apiKey = String(formData.get("apiKey") ?? "").trim();
+  const signingSecret = String(formData.get("signingSecret") ?? "").trim();
+
+  return guarded(async () => {
+    const user = await requirePermission("integration.configure");
+    if (!apiKey) throw new Error("Paste the OpusClip API key.");
+    if (!signingSecret) {
+      throw new Error(
+        "Paste the signing secret too. Without it the callback endpoint cannot " +
+          "tell a real result from anyone who found the URL, and it refuses everything.",
+      );
+    }
+
+    await verifyOpusKey(apiKey);
+
+    await saveCredential({
+      provider: "OPUSCLIP",
+      kind: "API_KEY",
+      payload: { apiKey, signingSecret },
+      accountLabel: "OpusClip",
+      actor: { kind: "user", id: user.id, name: user.name },
+      connectedBy: user.id,
+    });
+
+    return "Connected. Clips will arrive by callback when a run finishes.";
+  }, ["/studio/integrations"]);
+}
+
+/** Send this episode's recording for clipping. */
+export async function requestClipsAction(
+  _prev: ActionState,
+  formData: FormData,
+): Promise<ActionState> {
+  const episodeId = String(formData.get("episodeId"));
+  return guarded(async () => {
+    const user = await requirePermission("publication.enqueue");
+    const { sourceUrl } = await startClipRun(episodeId, {
+      kind: "user",
+      id: user.id,
+      name: user.name,
+    });
+    return `Sent to OpusClip from ${sourceUrl}. Clips appear here when it finishes — usually several minutes.`;
+  }, episodePaths(episodeId));
+}
 
 /* --------------------------------------------------------------- Resend */
 

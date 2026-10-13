@@ -352,6 +352,42 @@ export const merchItems = pgTable(
   ],
 );
 
+/**
+ * Clips returned by OpusClip.
+ *
+ * Stored rather than fetched on demand: OpusClip expires its own storage
+ * (`storageExpireAt` on a project), so a clip list read live would quietly
+ * empty out, and the titles and transcripts are worth keeping even after the
+ * rendered files are gone.
+ */
+export const episodeClips = pgTable(
+  "episode_clips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    episodeId: uuid("episode_id")
+      .notNull()
+      .references(() => episodes.id, { onDelete: "cascade" }),
+    /** OpusClip's own clip id. */
+    externalId: text("external_id").notNull(),
+    projectId: text("project_id").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    /** The clip's own transcript. */
+    transcriptText: text("transcript_text"),
+    hashtags: text("hashtags"),
+    keywords: text("keywords").array(),
+    durationSeconds: integer("duration_seconds"),
+    previewUrl: text("preview_url"),
+    downloadUrl: text("download_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("episode_clips_episode_idx").on(t.episodeId),
+    uniqueIndex("episode_clips_external_unique").on(t.externalId),
+  ],
+);
+
 /* --------------------------------------------------------------- episodes */
 
 export const episodes = pgTable(

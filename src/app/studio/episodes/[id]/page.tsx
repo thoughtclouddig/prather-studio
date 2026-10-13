@@ -19,9 +19,9 @@ import { relative, showDateTime, stamp } from "@/lib/format";
 import type { JobState, Platform } from "@/db/schema";
 import { diagnosticsEnabled } from "@/lib/diagnostics";
 import { Empty, Panel, StateBadge } from "@/components/ui";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "@/db/client";
-import { episodeImages, settings } from "@/db/schema";
+import { episodeClips, episodeImages, settings } from "@/db/schema";
 import { buildThumbnailBrief, slugFor } from "@/lib/images/thumbnail-brief";
 import { BuzzsproutAudioUpload } from "./buzzsprout-parts";
 import { RumbleHandoff } from "./rumble-parts";
@@ -32,6 +32,7 @@ import {
 import { CreateBuzzsproutDraft, CreateWordPressDraft } from "./publish-parts";
 import { ThumbnailStep } from "./thumbnail-parts";
 import { DeleteEpisode } from "./danger";
+import { ClipRunner } from "./clips-parts";
 import { updateEpisodeAction } from "@/app/studio/actions";
 import { latestTranscript } from "@/lib/domain/transcripts";
 import { topicLines } from "@/lib/domain/intake";
@@ -154,6 +155,13 @@ export default async function EpisodeWorkspace({
   // An embed id that lost its leading "v" 404s; a page URL and an embed URL
   // are different things and only one of them is somewhere to send a person.
   const rumbleLink = normalizeRumbleVideoUrl(rumblePub?.externalUrl);
+  const opusPub = publications.find((p) => p.platform === "OPUSCLIP");
+  const clips = await db
+    .select()
+    .from(episodeClips)
+    .where(eq(episodeClips.episodeId, episode.id))
+    .orderBy(asc(episodeClips.createdAt));
+
   const canDelete = can(user.role, "episode.delete");
   const impact = canDelete ? await deletionImpact(episode.id) : null;
 
@@ -911,6 +919,36 @@ export default async function EpisodeWorkspace({
         </Panel>
 
       </div>
+
+      <Panel
+        eyebrow="Clips"
+        title="Short vertical cuts, from OpusClip"
+        actions={
+          <span className="mono">
+            {clips.length > 0
+              ? `${clips.length} clip${clips.length === 1 ? "" : "s"}`
+              : opusPub?.state === "PROCESSING"
+                ? "running"
+                : "none yet"}
+          </span>
+        }
+      >
+        <ClipRunner
+          episodeId={episode.id}
+          canRun={canEdit}
+          hasVideo={!!linkedVideoId}
+          running={opusPub?.state === "PROCESSING"}
+          clips={clips.map((c) => ({
+            id: c.id,
+            title: c.title,
+            description: c.description,
+            hashtags: c.hashtags,
+            durationSeconds: c.durationSeconds,
+            previewUrl: c.previewUrl,
+            downloadUrl: c.downloadUrl,
+          }))}
+        />
+      </Panel>
 
       {/* Last on the page, and nowhere near the working controls. */}
       {canDelete && impact && (

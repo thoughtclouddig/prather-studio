@@ -7,6 +7,7 @@ import {
   connectMailchimpAction,
   connectPrintfulAction,
   connectResendAction,
+  connectOpusClipAction,
   connectRumbleAction,
   connectWordPressAction,
   disconnectIntegrationAction,
@@ -361,6 +362,54 @@ export function ConnectResendForm() {
         from your own address; the From is checked here against your verified domains,
         because Resend otherwise refuses at send time &mdash; which looks like an email
         that simply never arrived.
+      </p>
+      <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
+      <Feedback state={state} />
+    </form>
+  );
+}
+
+export function ConnectOpusClipForm() {
+  const [state, action] = useActionState(connectOpusClipAction, undefined);
+  return (
+    <form action={action} className="space-y-2">
+      <label className="block">
+        <span className="eyebrow block mb-1.5">API key</span>
+        <input
+          name="apiKey"
+          type="password"
+          required
+          autoComplete="off"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <label className="block">
+        <span className="eyebrow block mb-1.5">Signing secret</span>
+        <input
+          name="signingSecret"
+          type="password"
+          required
+          autoComplete="off"
+          placeholder="sk-…"
+          className="field font-mono text-[11px]"
+        />
+      </label>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        OpusClip &rarr; <span className="mono">API settings</span>. Two different values:
+        the key authenticates our requests, the <span className="mono">sk-</span> secret
+        signs the callbacks. Both are needed &mdash; the callback endpoint is public, so
+        without the secret it cannot tell a real result from anyone who found the URL, and
+        it refuses everything.
+      </p>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        Set the webhook URL in OpusClip to{" "}
+        <span className="mono break-all">
+          https://prather-studio.replit.app/api/integrations/opusclip/webhook
+        </span>
+      </p>
+      <p className="text-[11px] text-[var(--color-type-lo)] leading-snug">
+        The key is verified against their brand-templates endpoint, which costs nothing.
+        Creating a project to test it would spend a credit.
       </p>
       <Submit className="btn btn-xs btn-primary">Verify &amp; connect</Submit>
       <Feedback state={state} />
