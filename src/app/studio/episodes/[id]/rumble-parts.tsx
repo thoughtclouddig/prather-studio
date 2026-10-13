@@ -19,12 +19,14 @@ import { useState } from "react";
  */
 export function RumbleHandoff({
   description,
+  descriptionStage,
   chapters,
   videoUrl,
   videoLinkLabel,
   videoIsEmbedOnly,
 }: {
   description: string | null;
+  descriptionStage?: "final" | "preliminary" | "none";
   chapters: string | null;
   videoUrl: string | null;
   videoLinkLabel?: string | null;
@@ -54,8 +56,9 @@ export function RumbleHandoff({
           <span>Nothing approved yet</span>
         </div>
         <p className="text-[12px] text-[var(--color-type-lo)] leading-relaxed max-w-[64ch]">
-          Approve a description in Review and it will be composed here, ready to paste into
-          Rumble.
+          Approve a show description in Review and it will be composed here, ready to
+          paste into Rumble. That one is written from Jeff&rsquo;s submission, so it is
+          available before the show &mdash; which is when the live stream has to be set up.
         </p>
       </div>
     );
@@ -63,6 +66,23 @@ export function RumbleHandoff({
 
   return (
     <div className="px-4 py-3.5 space-y-3">
+      {/* Which description this is matters more than it looks: the
+          preliminary one exists so the live stream can be created before the
+          show, and it is meant to be replaced afterwards. Saying nothing here
+          leaves the morning's placeholder on the video for ever. */}
+      {descriptionStage === "preliminary" && (
+        <p className="text-[12px] text-[var(--color-signal-amber)] leading-relaxed max-w-[70ch]">
+          <strong>Preliminary — from Jeff&rsquo;s submission.</strong> Enough to get the
+          live stream set up before the show. After the transcript arrives, the content
+          engine writes a better one and this panel will say so; paste that over this.
+        </p>
+      )}
+      {descriptionStage === "final" && (
+        <p className="text-[12px] text-[var(--color-signal-green)] leading-relaxed max-w-[70ch]">
+          <strong>Final — from the transcript.</strong> If you pasted the preliminary
+          description before the show, replace it with this.
+        </p>
+      )}
       <div className="flex items-center gap-2.5 flex-wrap">
         <button
           type="button"

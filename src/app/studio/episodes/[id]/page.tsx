@@ -157,11 +157,27 @@ export default async function EpisodeWorkspace({
   const canDelete = can(user.role, "episode.delete");
   const impact = canDelete ? await deletionImpact(episode.id) : null;
 
-  // The same approved copy YouTube receives — one source, several destinations.
-  const approvedDescription =
+  /**
+   * The description Rumble gets, and which stage it came from.
+   *
+   * The Rumble listing has to exist before the stream does, so before the show
+   * it carries the PRELIMINARY description written from Jeff's submission.
+   * Afterwards the transcript produces a better one and that replaces it —
+   * which is a second paste, and only happens if the panel says so.
+   */
+  const approvedFinal =
     drafts.find((d) => d.field === "platform_description" && d.state === "APPROVED")?.value ??
     drafts.find((d) => d.field === "summary_long" && d.state === "APPROVED")?.value ??
     null;
+  const approvedPreliminary =
+    drafts.find((d) => d.field === "show_description" && d.state === "APPROVED")?.value ?? null;
+
+  const approvedDescription = approvedFinal ?? approvedPreliminary;
+  const descriptionStage: "final" | "preliminary" | "none" = approvedFinal
+    ? "final"
+    : approvedPreliminary
+      ? "preliminary"
+      : "none";
   const approvedChapters =
     drafts.find((d) => d.field === "chapters" && d.state === "APPROVED")?.value ?? null;
 
@@ -780,6 +796,7 @@ export default async function EpisodeWorkspace({
         >
           <RumbleHandoff
             description={approvedDescription}
+            descriptionStage={descriptionStage}
             chapters={approvedChapters}
             videoUrl={rumbleLink?.url ?? null}
             videoLinkLabel={rumbleLink ? rumbleLinkLabel(rumbleLink) : null}
