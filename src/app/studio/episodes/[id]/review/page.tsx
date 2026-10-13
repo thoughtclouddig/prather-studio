@@ -25,16 +25,40 @@ export const dynamic = "force-dynamic";
  * requires visiting six tabs, this build has recreated the six-platform problem
  * inside our own app.
  */
+/**
+ * Ordered by when the decision is made, not by where the copy ends up.
+ *
+ * Everything in 1–4 comes from Jeff's submission and is decided BEFORE the
+ * show: the headline the thumbnail and the Rumble listing carry, the
+ * description that gets the live stream set up, and the email that goes out
+ * while he is still on air. None of it can wait for a transcript.
+ *
+ * 5 onward reads the recording, so it cannot exist until afterwards.
+ */
 const SECTIONS: Array<{ key: string; title: string; fields: string[] }> = [
-  { key: "headline", title: "1 · Headline", fields: ["primary_headline"] },
-  { key: "alternates", title: "2 · Alternate headlines", fields: ["alternate_headline"] },
-  { key: "summary", title: "3 · Summary", fields: ["summary_short", "summary_long"] },
+  {
+    key: "headline",
+    title: "1 · Headline — his, and the alternatives",
+    fields: ["primary_headline", "alternate_headline"],
+  },
+  { key: "show", title: "2 · Show description", fields: ["show_description"] },
+  {
+    key: "email",
+    title: "3 · Email",
+    fields: ["email_subject", "email_preview", "email_brief", "email_bullets"],
+  },
+  { key: "summary", title: "4 · Summary", fields: ["summary_short", "summary_long"] },
+  {
+    key: "youtube",
+    title: "5 · YouTube title — after the show",
+    fields: ["platform_title", "alternate_platform_title"],
+  },
   {
     key: "descriptions",
-    title: "4 · Platform copy",
+    title: "6 · Platform copy — after the show",
     fields: ["platform_description", "social_caption"],
   },
-  { key: "chapters", title: "5 · Chapters", fields: ["chapters"] },
+  { key: "chapters", title: "7 · Chapters — after the show", fields: ["chapters"] },
 ];
 
 export default async function ReviewMode({

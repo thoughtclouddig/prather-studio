@@ -6,7 +6,7 @@
  */
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { and, eq } from "drizzle-orm";
+import { and, eq, notInArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   episodeContentDrafts,
@@ -26,7 +26,7 @@ import {
 } from "./schema";
 
 export const PACKAGE_MODEL = "claude-opus-5";
-export const PROMPT_VERSION = "packaging.v2";
+export const PROMPT_VERSION = "packaging.v3";
 
 /**
  * The transcript is the authority. Everything below exists to make the model
@@ -231,12 +231,27 @@ export async function writeDrafts(
   };
 
   const rows: Array<typeof episodeContentDrafts.$inferInsert> = [
-    { ...base, field: "primary_headline", value: pkg.primary_headline, sortOrder: 0 },
-    ...pkg.alternate_headlines.map((value, i) => ({
+    // NOTE: no primary_headline. The show's headline is decided BEFORE the
+    // broadcast, from Jeff's submission, because the thumbnail and the Rumble
+    // listing need it hours before a transcript exists. Writing one here would
+    // propose a new title for a show that has already gone out under another.
+    //
+    // What the transcript is good for is a YouTube title: it can see which
+    // moment actually landed. So the headline work post-show is YouTube's
+    // alone, and the alternates become A/B variants for Test & Compare.
+    {
       ...base,
-      field: "alternate_headline",
+      field: "alternate_platform_title",
+      platform: "YOUTUBE" as const,
+      value: pkg.primary_headline,
+      sortOrder: 1,
+    },
+    ...pkg.alternate_headlines.slice(0, 2).map((value, i) => ({
+      ...base,
+      field: "alternate_platform_title",
+      platform: "YOUTUBE" as const,
       value,
-      sortOrder: i + 1,
+      sortOrder: i + 2,
     })),
     { ...base, field: "summary_short", value: pkg.summary_short, sortOrder: 10 },
     { ...base, field: "summary_long", value: pkg.summary_long, sortOrder: 11 },
@@ -305,6 +320,9 @@ export async function writeDrafts(
   // Only PROPOSED drafts are retired. An APPROVED draft is a human decision
   // and is never silently discarded: it stays, and the staleness check marks
   // it as needing re-review when the material beneath it changed.
+  // The headline fields belong to the pre-show engine now. Superseding them
+  // here would wipe the options a person is choosing between hours before air,
+  // the moment a transcript arrives hours after it.
   await db
     .update(episodeContentDrafts)
     .set({ state: "SUPERSEDED" })
@@ -312,6 +330,10 @@ export async function writeDrafts(
       and(
         eq(episodeContentDrafts.episodeId, episodeId),
         eq(episodeContentDrafts.state, "PROPOSED"),
+        notInArray(episodeContentDrafts.field, [
+          "primary_headline",
+          "alternate_headline",
+        ]),
       ),
     );
 

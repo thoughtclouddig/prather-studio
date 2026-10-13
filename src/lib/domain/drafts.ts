@@ -5,7 +5,7 @@
  * different things, and only a human moves a draft between them. Nothing
  * downstream may read a draft that is not APPROVED.
  */
-import { and, asc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { db } from "@/db/client";
 import {
   episodeContentDrafts,
@@ -32,8 +32,23 @@ async function loadDraft(draftId: string): Promise<EpisodeContentDraft> {
 }
 
 /**
- * Approving the primary headline is what sets the episode's approved title.
- * That is the one place a draft becomes canonical, and it happens only here.
+ * The fields that are candidates to be the show's headline.
+ *
+ * `primary_headline` is Jeff's own, written verbatim from his submission;
+ * `alternate_headline` are the engine's shorter, plainer versions of the same
+ * claim. Both are candidates, and which one runs is a human choice.
+ */
+const HEADLINE_FIELDS = ["primary_headline", "alternate_headline"] as const;
+
+/**
+ * Approving a headline is what sets the episode's title.
+ *
+ * It used to read `primary_headline` only, which meant approving one of the
+ * alternates did nothing at all: the draft went green and the episode kept the
+ * old title, so the thumbnail and the Rumble listing carried a headline nobody
+ * had chosen. Any candidate can now be the one.
+ *
+ * The choice is exclusive — see `approveDraft`.
  */
 async function syncApprovedTitle(episodeId: string): Promise<void> {
   const [approved] = await db
@@ -42,17 +57,38 @@ async function syncApprovedTitle(episodeId: string): Promise<void> {
     .where(
       and(
         eq(episodeContentDrafts.episodeId, episodeId),
-        eq(episodeContentDrafts.field, "primary_headline"),
+        inArray(episodeContentDrafts.field, [...HEADLINE_FIELDS]),
         eq(episodeContentDrafts.state, "APPROVED"),
       ),
     )
-    .orderBy(asc(episodeContentDrafts.createdAt))
+    .orderBy(desc(episodeContentDrafts.approvedAt))
     .limit(1);
 
   await db
     .update(episodes)
     .set({ approvedTitle: approved?.value ?? null, updatedAt: new Date() })
     .where(eq(episodes.id, episodeId));
+}
+
+/**
+ * A show has one headline, so approving a second returns the first to the pile.
+ *
+ * Returned to PROPOSED rather than rejected: changing your mind about which
+ * headline to run is not a judgement that the other one was bad, and it should
+ * still be there to switch back to.
+ */
+async function unchooseOtherHeadlines(episodeId: string, keepDraftId: string): Promise<void> {
+  await db
+    .update(episodeContentDrafts)
+    .set({ state: "PROPOSED", approvedBy: null, approvedAt: null })
+    .where(
+      and(
+        eq(episodeContentDrafts.episodeId, episodeId),
+        inArray(episodeContentDrafts.field, [...HEADLINE_FIELDS]),
+        eq(episodeContentDrafts.state, "APPROVED"),
+        ne(episodeContentDrafts.id, keepDraftId),
+      ),
+    );
 }
 
 export async function approveDraft(
@@ -70,6 +106,10 @@ export async function approveDraft(
     .set({ state: "APPROVED", approvedBy: user.id, approvedAt: new Date() })
     .where(eq(episodeContentDrafts.id, draftId))
     .returning();
+
+  if ((HEADLINE_FIELDS as readonly string[]).includes(draft.field)) {
+    await unchooseOtherHeadlines(draft.episodeId, draftId);
+  }
 
   await syncApprovedTitle(draft.episodeId);
   await recordActivity({

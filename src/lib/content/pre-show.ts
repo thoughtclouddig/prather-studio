@@ -36,7 +36,7 @@ import { episodeContentDrafts, episodes, settings } from "@/db/schema";
 import { recordActivity } from "@/lib/domain/activity";
 import { topicLines } from "@/lib/domain/intake";
 
-export const PRE_SHOW_PROMPT_VERSION = "pre-show.v1";
+export const PRE_SHOW_PROMPT_VERSION = "pre-show.v2";
 const PRE_SHOW_MODEL = "claude-opus-5";
 
 /** Three. Not four — more options is not more useful, it is more to read. */
@@ -56,8 +56,35 @@ do not support a claim, it does not appear.`;
 const SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["subject_lines", "preview_text", "brief", "bullets"],
+  required: [
+    "headline_options",
+    "show_description",
+    "subject_lines",
+    "preview_text",
+    "brief",
+    "bullets",
+  ],
   properties: {
+    headline_options: {
+      type: "array",
+      description:
+        "Exactly 3 to 4 alternatives to HIS headline, for the SHOW itself — the " +
+        "title on Rumble, on the thumbnail, on the site. Same claim and same " +
+        "angle as his; what changes is that they are shorter and use plainer " +
+        "words. His are often long, and reach for a word where a simpler one " +
+        "lands harder. Aim under 70 characters. These sit beside his, not in " +
+        "place of it: a person picks.",
+      items: { type: "string" },
+    },
+    show_description: {
+      type: "string",
+      description:
+        "Two or three short paragraphs describing today's show, built from his " +
+        "write-up and his topics. This goes on the Rumble live stream BEFORE the " +
+        "show, so it must stand on its own without a recording to draw on — " +
+        "written in advance, in the present tense, saying what the show covers " +
+        "rather than what it covered.",
+    },
     subject_lines: {
       type: "array",
       description:
@@ -94,6 +121,8 @@ const SCHEMA = {
 } as const;
 
 export interface PreShowPackage {
+  headline_options: string[];
+  show_description: string;
   subject_lines: string[];
   preview_text: string;
   brief: string;
@@ -157,8 +186,17 @@ export async function runPreShow(episodeId: string): Promise<number> {
         role: "user",
         content: `${context}
 
-Prepare the pre-show email. Exactly ${SUBJECT_COUNT} subject lines, each a variation on \
-HIS headline that creates curiosity. Keep his bullets as his — spelling and grammar only.`,
+Prepare everything today's show needs before it airs.
+
+The HEADLINE OPTIONS are for the show itself — the thumbnail, the Rumble listing, the \
+site. His headline stands as written and is not one of yours; yours sit beside it, saying \
+the same thing shorter and plainer, so a person can choose.
+
+The SHOW DESCRIPTION goes on the Rumble live stream before the show starts. There is no \
+recording yet, so write it in advance and in the present tense.
+
+Then the email: exactly ${SUBJECT_COUNT} subject lines, each a variation on HIS headline \
+that creates curiosity. Keep his bullets as his — spelling and grammar only.`,
       },
     ],
   });
@@ -179,8 +217,10 @@ HIS headline that creates curiosity. Keep his bullets as his — spelling and gr
   const pkg = JSON.parse(textBlock.text) as PreShowPackage;
   validate(pkg, topics.length);
 
-  // Retire the previous pre-show generation. Approved drafts survive — a human
-  // decision is not discarded by a re-run; the staleness check flags those.
+  // Retire the previous pre-show generation, headlines included — this engine
+  // now owns them, so excluding them would leave two sets of options on screen.
+  // APPROVED drafts survive: a human decision is never discarded by a re-run,
+  // and a headline already chosen stays chosen.
   await db
     .update(episodeContentDrafts)
     .set({ state: "SUPERSEDED" })
@@ -188,7 +228,6 @@ HIS headline that creates curiosity. Keep his bullets as his — spelling and gr
       and(
         eq(episodeContentDrafts.episodeId, episodeId),
         eq(episodeContentDrafts.state, "PROPOSED"),
-        ne(episodeContentDrafts.field, "primary_headline"),
       ),
     );
 
@@ -201,6 +240,26 @@ HIS headline that creates curiosity. Keep his bullets as his — spelling and gr
   };
 
   const rows = [
+    // HIS headline is the primary, kept verbatim and marked HUMAN. It is the
+    // default the show runs under unless a person actively picks another —
+    // the engine proposes alternatives, it does not replace him.
+    {
+      ...base,
+      source: "HUMAN" as const,
+      field: "primary_headline",
+      value: episode.hostHeadline,
+      sortOrder: 0,
+    },
+    ...pkg.headline_options.map((value, index) => ({
+      ...base,
+      field: "alternate_headline",
+      value,
+      sortOrder: index + 1,
+    })),
+    // The Rumble listing has to exist before the stream does, so this is
+    // written from the submission and replaced after the show by the
+    // transcript-derived description.
+    { ...base, field: "show_description", value: pkg.show_description, sortOrder: 5 },
     ...pkg.subject_lines.map((value, index) => ({
       ...base,
       field: "email_subject",
@@ -226,8 +285,9 @@ HIS headline that creates curiosity. Keep his bullets as his — spelling and gr
     subjectId: episodeId,
     episodeId,
     summary:
-      `Prepared the pre-show email from Jeff's submission — ` +
-      `${pkg.subject_lines.length} subject lines, a brief and ${pkg.bullets.length} bullets`,
+      `Prepared the show from Jeff's submission — ${pkg.headline_options.length} headline ` +
+      `options beside his, a show description, ${pkg.subject_lines.length} subject lines, ` +
+      `a brief and ${pkg.bullets.length} bullets`,
     after: { promptVersion: PRE_SHOW_PROMPT_VERSION, drafts: rows.length },
   });
 
@@ -242,6 +302,12 @@ HIS headline that creates curiosity. Keep his bullets as his — spelling and gr
  * and simply be missing something he said he was covering.
  */
 function validate(pkg: PreShowPackage, expectedBullets: number): void {
+  if (!Array.isArray(pkg.headline_options) || pkg.headline_options.length === 0) {
+    throw new Error("The engine returned no headline options.");
+  }
+  if (!pkg.show_description?.trim()) {
+    throw new Error("The engine returned no show description.");
+  }
   if (!Array.isArray(pkg.subject_lines) || pkg.subject_lines.length === 0) {
     throw new Error("The engine returned no subject lines.");
   }

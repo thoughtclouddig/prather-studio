@@ -129,12 +129,22 @@ export const READINESS_TONE: Record<Readiness, Tone> = {
 
 /** Human labels for draft `field` keys. */
 export const FIELD_LABEL: Record<string, string> = {
-  primary_headline: "Primary headline",
-  alternate_headline: "Alternate headline",
+  // "Jeff's headline" rather than "Primary headline": it is his, written
+  // verbatim, and the label should say whose words a reviewer is looking at.
+  primary_headline: "Jeff's headline",
+  alternate_headline: "Shorter alternative",
+  show_description: "Show description",
+  email_subject: "Email subject",
+  email_preview: "Email preview line",
+  email_brief: "Email brief",
+  email_bullets: "Email bullets",
   summary_short: "Short summary",
   summary_long: "Long summary",
+  platform_title: "YouTube title",
+  alternate_platform_title: "YouTube title variant",
   platform_description: "Description",
   chapters: "Chapters",
+  clip_candidates: "Clip candidates",
   social_caption: "Social caption",
 };
 

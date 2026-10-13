@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db } from "@/db/client";
 import { episodeContentDrafts, episodes } from "@/db/schema";
 import { writeDrafts, PACKAGE_MODEL, PROMPT_VERSION } from "@/lib/content/package";
@@ -129,19 +129,134 @@ describe("generated content enters as proposals", () => {
     expect(clips!.value.match(/^\d+\. \[/gm)).toHaveLength(3);
   });
 
-  it("approving a generated headline is what sets the canonical title", async () => {
-    const { approveDraft } = await import("@/lib/domain/drafts");
-    const owner = await makeUser("OWNER");
+  /**
+   * The show's headline is decided BEFORE the broadcast, from Jeff's
+   * submission, because the thumbnail and the Rumble listing need it hours
+   * before a transcript exists. A packaging run proposing a new show headline
+   * would be proposing to retitle a show that already went out.
+   */
+  it("proposes no show headline — that decision happened before air", async () => {
     await writeDrafts(episodeId, PKG);
 
-    const [headline] = await db
+    const headlines = await db
       .select()
       .from(episodeContentDrafts)
-      .where(eq(episodeContentDrafts.field, "primary_headline"));
+      .where(
+        inArray(episodeContentDrafts.field, ["primary_headline", "alternate_headline"]),
+      );
 
-    await approveDraft(owner, headline!.id);
+    expect(headlines).toHaveLength(0);
+  });
+
+  /**
+   * What the transcript IS good for is a YouTube title: it can see which
+   * moment actually landed. Three variants, because YouTube's Test & Compare
+   * takes three.
+   */
+  it("turns its headline work into YouTube title variants", async () => {
+    await writeDrafts(episodeId, PKG);
+
+    const variants = await db
+      .select()
+      .from(episodeContentDrafts)
+      .where(eq(episodeContentDrafts.field, "alternate_platform_title"));
+
+    expect(variants.length).toBeGreaterThan(0);
+    expect(variants.length).toBeLessThanOrEqual(3);
+    expect(variants.every((v) => v.platform === "YOUTUBE")).toBe(true);
+    expect(variants.map((v) => v.value)).toContain("Five U.S. Bases Hit");
+  });
+
+  /**
+   * A packaging run arriving hours after air must not wipe the headline
+   * options someone was choosing between hours before it.
+   */
+  it("leaves the pre-show headline drafts alone when it runs", async () => {
+    const [kept] = await db
+      .insert(episodeContentDrafts)
+      .values({
+        episodeId,
+        field: "primary_headline",
+        value: "Jeff's own headline",
+        source: "HUMAN",
+        state: "PROPOSED",
+      })
+      .returning();
+
+    await writeDrafts(episodeId, PKG);
+
+    const [after] = await db
+      .select()
+      .from(episodeContentDrafts)
+      .where(eq(episodeContentDrafts.id, kept!.id));
+
+    expect(after!.state).toBe("PROPOSED");
+  });
+});
+
+describe("choosing which headline the show runs under", () => {
+  /**
+   * Approving an alternate used to do nothing: syncApprovedTitle read
+   * `primary_headline` only, so the draft went green while the episode kept
+   * the old title — and the thumbnail and Rumble listing carried a headline
+   * nobody had chosen.
+   */
+  it("an approved alternate becomes the episode's title", async () => {
+    const { approveDraft } = await import("@/lib/domain/drafts");
+    const owner = await makeUser("OWNER");
+
+    const [alternate] = await db
+      .insert(episodeContentDrafts)
+      .values({
+        episodeId,
+        field: "alternate_headline",
+        value: "Shorter, Plainer, His Point",
+        state: "PROPOSED",
+      })
+      .returning();
+
+    await approveDraft(owner, alternate!.id);
 
     const [episode] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
-    expect(episode!.approvedTitle).toBe("Five U.S. Bases Hit");
+    expect(episode!.approvedTitle).toBe("Shorter, Plainer, His Point");
+  });
+
+  it("choosing a second headline returns the first to the options", async () => {
+    const { approveDraft } = await import("@/lib/domain/drafts");
+    const owner = await makeUser("OWNER");
+
+    const [his] = await db
+      .insert(episodeContentDrafts)
+      .values({
+        episodeId,
+        field: "primary_headline",
+        value: "Jeff's own, at length",
+        source: "HUMAN",
+        state: "PROPOSED",
+      })
+      .returning();
+    const [shorter] = await db
+      .insert(episodeContentDrafts)
+      .values({
+        episodeId,
+        field: "alternate_headline",
+        value: "Jeff's own, shorter",
+        state: "PROPOSED",
+      })
+      .returning();
+
+    await approveDraft(owner, his!.id);
+    await approveDraft(owner, shorter!.id);
+
+    const [episode] = await db.select().from(episodes).where(eq(episodes.id, episodeId));
+    expect(episode!.approvedTitle).toBe("Jeff's own, shorter");
+
+    // Returned to the pile, not rejected — changing your mind about which to
+    // run is not a judgement that the other was bad.
+    const [first] = await db
+      .select()
+      .from(episodeContentDrafts)
+      .where(eq(episodeContentDrafts.id, his!.id));
+    expect(first!.state).toBe("PROPOSED");
   });
 });
